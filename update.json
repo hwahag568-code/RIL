@@ -1,18 +1,18 @@
 {
   "schema_version": 2,
-  "version": "260729.2",
+  "version": "260729.3",
   "protocol_version": 2,
   "client": {
-    "url": "https://github.com/hwahag568-code/RIL/releases/download/v260729.2/Update_RIL.exe",
-    "sha256": "0fe9777104f941cb2a3f53b81e62c4709b8edef83d905c3a64e4bd189156cfa0",
-    "size": 33659913,
+    "url": "https://github.com/hwahag568-code/RIL/releases/download/v260729.3/Update_RIL.exe",
+    "sha256": "21263ac2806b84c854987bd0abf15511555477f69b40831390f66cd9a75aa72b",
+    "size": 33661546,
     "automatic_update": true
   },
   "server": {
-    "url": "https://github.com/hwahag568-code/RIL/releases/download/v260729.2/RIL_Server_Setup_260729.2.exe",
-    "file": "RIL_Server_Setup_260729.2.exe",
-    "sha256": "4955e97bb78c784abf97d1f53be27289eec71ccf3f110953813b3a2d760840e3",
-    "size": 20107312,
+    "url": "https://github.com/hwahag568-code/RIL/releases/download/v260729.3/RIL_Server_Setup_260729.3.exe",
+    "file": "RIL_Server_Setup_260729.3.exe",
+    "sha256": "f12efb362107574d6b1dc0701f25c3668304abf0a61db5b7f4d478532eb56f78",
+    "size": 20114862,
     "automatic_update": true
   }
 }
