@@ -1,0 +1,818 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Dialog</class>
+ <widget class="QDialog" name="Dialog">
+  <property name="windowModality">
+   <enum>Qt::NonModal</enum>
+  </property>
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>485</width>
+    <height>749</height>
+   </rect>
+  </property>
+  <property name="sizePolicy">
+   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+    <horstretch>0</horstretch>
+    <verstretch>0</verstretch>
+   </sizepolicy>
+  </property>
+  <property name="windowTitle">
+   <string>인터페이스 원격로그인 프로그램(client)</string>
+  </property>
+  <property name="windowIcon">
+   <iconset>
+    <normaloff>../../Program Files (x86)/RIL/chunsik1.ico</normaloff>../../Program Files (x86)/RIL/chunsik1.ico</iconset>
+  </property>
+  <property name="accessibleName">
+   <string>RIL</string>
+  </property>
+  <property name="accessibleDescription">
+   <string>RIL</string>
+  </property>
+  <widget class="QLabel" name="label">
+   <property name="geometry">
+    <rect>
+     <x>61</x>
+     <y>10</y>
+     <width>366</width>
+     <height>35</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>AppleSDGothicNeoB00</family>
+     <pointsize>22</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>인터페이스 원격로그인 프로그램</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QWidget" name="layoutWidget">
+   <property name="geometry">
+    <rect>
+     <x>117</x>
+     <y>493</y>
+     <width>250</width>
+     <height>58</height>
+    </rect>
+   </property>
+   <layout class="QFormLayout" name="formLayout_3">
+    <property name="labelAlignment">
+     <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+    </property>
+    <item row="0" column="0">
+     <widget class="QLabel" name="label_8">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>16</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>ID 입력 : </string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="0">
+     <widget class="QLabel" name="label_9">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>16</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>PW 입력 : </string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="1">
+     <widget class="QLineEdit" name="lineEdit_ID"/>
+    </item>
+    <item row="1" column="1">
+     <widget class="QLineEdit" name="lineEdit_PW"/>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QLabel" name="label_15">
+   <property name="geometry">
+    <rect>
+     <x>81</x>
+     <y>78</y>
+     <width>327</width>
+     <height>63</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>AppleSDGothicNeoB00</family>
+     <pointsize>12</pointsize>
+     <weight>50</weight>
+     <bold>false</bold>
+     <underline>false</underline>
+    </font>
+   </property>
+   <property name="text">
+    <string>1. 원하는 항목 선택(개별 장비로 선택도 가능)
+2. ID, PW입력 후 실행 버튼 누르기
+3. 팝업창에 입력된 ID, PW가 올바른지 확인 후 진행</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_16">
+   <property name="geometry">
+    <rect>
+     <x>202</x>
+     <y>50</y>
+     <width>84</width>
+     <height>19</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>AppleSDGothicNeoB00</family>
+     <pointsize>12</pointsize>
+     <weight>50</weight>
+     <bold>false</bold>
+     <underline>false</underline>
+    </font>
+   </property>
+   <property name="text">
+    <string>※사용방법※</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QPushButton" name="pushButton_run">
+   <property name="geometry">
+    <rect>
+     <x>205</x>
+     <y>560</y>
+     <width>75</width>
+     <height>33</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>AppleSDGothicNeoB00</family>
+     <pointsize>16</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>실행</string>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_result">
+   <property name="geometry">
+    <rect>
+     <x>70</x>
+     <y>600</y>
+     <width>350</width>
+     <height>19</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>AppleSDGothicNeoB00</family>
+     <pointsize>14</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>장비별 로그인 결과가 실시간으로 표시되며</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QWidget" name="layoutWidget">
+   <property name="geometry">
+    <rect>
+     <x>18</x>
+     <y>255</y>
+     <width>447</width>
+     <height>231</height>
+    </rect>
+   </property>
+   <layout class="QGridLayout" name="gridLayout">
+    <item row="0" column="2">
+     <widget class="QCheckBox" name="checkBox_AU1">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>AU 1</string>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="0">
+     <widget class="QCheckBox" name="checkBox_Cobas">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>Cobas</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="3">
+     <widget class="QLabel" name="label_AU2">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="2">
+     <widget class="QCheckBox" name="checkBox_AU2">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>AU 2</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="1">
+     <widget class="QLabel" name="label_Al1">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="0">
+     <widget class="QCheckBox" name="checkBox_Al1">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>Alinity 1</string>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="1">
+     <widget class="QLabel" name="label_Cobas">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+    <item row="5" column="2">
+     <widget class="QCheckBox" name="checkBox_OC">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>Osmo</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="2">
+     <widget class="QCheckBox" name="checkBox_Presep">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>Presepsin</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="1">
+     <widget class="QLabel" name="label_D2">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+    <item row="4" column="0">
+     <widget class="QCheckBox" name="checkBox_Al3">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>Alinity 3</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="0">
+     <widget class="QCheckBox" name="checkBox_D2">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>DxI 2</string>
+      </property>
+     </widget>
+    </item>
+    <item row="6" column="3">
+     <widget class="QLabel" name="label_Nova">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="3">
+     <widget class="QLabel" name="label_AU1">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="0">
+     <widget class="QCheckBox" name="checkBox_D1">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>DxI 1</string>
+      </property>
+     </widget>
+    </item>
+    <item row="4" column="3">
+     <widget class="QLabel" name="label_pHox">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+    <item row="6" column="2">
+     <widget class="QCheckBox" name="checkBox_Nova">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>12</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>Nova Prime</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="3">
+     <widget class="QLabel" name="label_Presep">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="1">
+     <widget class="QLabel" name="label_D1">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+    <item row="4" column="2">
+     <widget class="QCheckBox" name="checkBox_pHox">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>pHox ultra</string>
+      </property>
+     </widget>
+    </item>
+    <item row="4" column="1">
+     <widget class="QLabel" name="label_Al3">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+    <item row="5" column="3">
+     <widget class="QLabel" name="label_OC">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+    <item row="5" column="0">
+     <widget class="QCheckBox" name="checkBox_UA">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>UA</string>
+      </property>
+     </widget>
+    </item>
+    <item row="5" column="1">
+     <widget class="QLabel" name="label_UA">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="2">
+     <widget class="QCheckBox" name="checkBox_AU3">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>AU 3</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="3">
+     <widget class="QLabel" name="label_AU3">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>로그인 성공!</string>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QWidget" name="layoutWidget">
+   <property name="geometry">
+    <rect>
+     <x>30</x>
+     <y>150</y>
+     <width>425</width>
+     <height>95</height>
+    </rect>
+   </property>
+   <layout class="QGridLayout" name="gridLayout_2">
+    <item row="0" column="0">
+     <widget class="QRadioButton" name="radioButton_onlyIA">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>면역장비만 선택</string>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="1">
+     <widget class="QRadioButton" name="radioButton_onlyCH">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>화학장비만 선택</string>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="2">
+     <widget class="QRadioButton" name="radioButton_onlyAU">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>AU만 선택</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="2">
+     <widget class="QRadioButton" name="radioButton_onlyDxI">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>DxI만 선택</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="2">
+     <widget class="QRadioButton" name="radioButton_onlyAlinity">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>Alinity만 선택</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="0">
+     <widget class="QRadioButton" name="radioButton_dangjik">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>주야간 당직</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="1">
+     <widget class="QRadioButton" name="radioButton_jochul">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>화학 조기출근</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="0">
+     <widget class="QRadioButton" name="radioButton_ALL">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>전부 선택</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="1">
+     <widget class="QRadioButton" name="radioButton_None">
+      <property name="font">
+       <font>
+        <family>AppleSDGothicNeoB00</family>
+        <pointsize>14</pointsize>
+       </font>
+      </property>
+      <property name="text">
+       <string>전부 선택 해제</string>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QLabel" name="label_result_2">
+   <property name="geometry">
+    <rect>
+     <x>70</x>
+     <y>648</y>
+     <width>350</width>
+     <height>18</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>AppleSDGothicNeoB00</family>
+     <pointsize>14</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>모든 인터페이스는 종료 후 재시작되며</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_result_3">
+   <property name="geometry">
+    <rect>
+     <x>70</x>
+     <y>671</y>
+     <width>350</width>
+     <height>19</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>AppleSDGothicNeoB00</family>
+     <pointsize>14</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>프로그램이 재실행되는 시점에 접수되거나</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_result_4">
+   <property name="geometry">
+    <rect>
+     <x>70</x>
+     <y>695</y>
+     <width>350</width>
+     <height>19</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>AppleSDGothicNeoB00</family>
+     <pointsize>14</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>결과가 전송되는 검체가 있을 경우</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_result_5">
+   <property name="geometry">
+    <rect>
+     <x>70</x>
+     <y>624</y>
+     <width>350</width>
+     <height>19</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>AppleSDGothicNeoB00</family>
+     <pointsize>14</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>실패한 장비만 개별적으로 재시도할 수 있습니다.</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+  <widget class="QLabel" name="label_result_6">
+   <property name="geometry">
+    <rect>
+     <x>70</x>
+     <y>719</y>
+     <width>350</width>
+     <height>18</height>
+    </rect>
+   </property>
+   <property name="font">
+    <font>
+     <family>AppleSDGothicNeoB00</family>
+     <pointsize>14</pointsize>
+    </font>
+   </property>
+   <property name="text">
+    <string>해당 정보가 누락될 수 있습니다.</string>
+   </property>
+   <property name="alignment">
+    <set>Qt::AlignCenter</set>
+   </property>
+  </widget>
+ </widget>
+ <tabstops>
+  <tabstop>lineEdit_ID</tabstop>
+  <tabstop>lineEdit_PW</tabstop>
+  <tabstop>pushButton_run</tabstop>
+  <tabstop>radioButton_onlyIA</tabstop>
+  <tabstop>radioButton_onlyCH</tabstop>
+  <tabstop>radioButton_onlyAU</tabstop>
+  <tabstop>radioButton_onlyDxI</tabstop>
+  <tabstop>radioButton_onlyAlinity</tabstop>
+  <tabstop>checkBox_Cobas</tabstop>
+  <tabstop>checkBox_D1</tabstop>
+  <tabstop>checkBox_D2</tabstop>
+  <tabstop>checkBox_Al1</tabstop>
+  <tabstop>checkBox_Al3</tabstop>
+  <tabstop>checkBox_UA</tabstop>
+  <tabstop>checkBox_AU1</tabstop>
+  <tabstop>checkBox_AU2</tabstop>
+  <tabstop>checkBox_AU3</tabstop>
+  <tabstop>checkBox_Presep</tabstop>
+  <tabstop>checkBox_pHox</tabstop>
+  <tabstop>checkBox_OC</tabstop>
+  <tabstop>checkBox_Nova</tabstop>
+ </tabstops>
+ <resources/>
+ <connections/>
+</ui>

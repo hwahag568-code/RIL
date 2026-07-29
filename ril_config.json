@@ -1,0 +1,450 @@
+{
+  "schema_version": 1,
+  "build": {
+    "platform": "win32",
+    "machine": "AMD64",
+    "python_major_minor": "3.13",
+    "architecture_bits": 64
+  },
+  "release": {
+    "version": "260729.5",
+    "protocol_version": 2,
+    "repository": "hwahag568-code/RIL",
+    "tag_prefix": "v",
+    "branch": "main",
+    "publish_mutex_name": "Global\\KUMC_RIL_Publish",
+    "stage_attempts": 2,
+    "stage_retry_delay_seconds": 5,
+    "activation_attempts": 2,
+    "activation_retry_delay_seconds": 5
+  },
+  "artifacts": {
+    "client_installer_filename": "Update_RIL.exe",
+    "server_installer_filename_template": "RIL_Server_Setup_{version}.exe",
+    "manifest_filename": "update.json",
+    "legacy_version_filename": "version.txt",
+    "legacy_client_release_tag": "Update"
+  },
+  "installation": {
+    "nsis_install_dir": "$PROGRAMFILES64\\RIL",
+    "registry_key": "Software\\RIL",
+    "client_install_registry_value": "ClientInstallDir",
+    "server_install_registry_value": "ServerInstallDir",
+    "legacy_install_registry_value": "Install_Dir",
+    "server_version_registry_value": "ServerVersion",
+    "client_executable": "RIL_client.exe",
+    "server_executable": "RIL_server.exe",
+    "client_runtime_directory": "_client_internal",
+    "server_runtime_directory": "_server_internal",
+    "legacy_runtime_directory": "_internal",
+    "client_ui_file": "RIL.ui",
+    "icon_file": "chunsik1.ico",
+    "server_start_script": "RIL_server_start.bat",
+    "server_start_power_shell_script": "RIL_server_start.ps1",
+    "server_restarter_script": "RIL_server_restarter.cmd",
+    "server_restarter_power_shell_script": "RIL_server_restarter.ps1",
+    "server_update_helper_script": "RIL_server_update_helper.ps1",
+    "server_update_helper_ready_filename": "server_update_helper_ready.json",
+    "server_effective_config_filename": "ril_config.effective.json",
+    "server_task_name": "RIL_server",
+    "server_restarter_task_name": "RIL_server_restarter",
+    "client_update_recovery_task_name": "RIL_client_update_recovery",
+    "client_startup_ready_filename": ".ril_client_startup_ready.json",
+    "client_startup_check_script": "RIL_client_startup_check.ps1",
+    "server_restarter_interval_hours": 4,
+    "shortcut_directory": "인터페이스 원격로그인 프로그램",
+    "server_start_menu_shortcut": "서버.lnk",
+    "server_desktop_shortcut": "인터페이스 원격로그인 서버.lnk",
+    "runtime_program_data_dir": "%ProgramData%\\RIL",
+    "server_update_state_relative_path": "state\\server_update_state.json",
+    "server_update_stage_relative_directory": "updates",
+    "server_manual_transaction_relative_directory": "state\\manual_server_install",
+    "server_health_filename": "server_status.json",
+    "update_mutex_name": "Global\\KUMC_RIL_Update"
+  },
+  "logging": {
+    "directory": "%ProgramData%\\RIL\\logs"
+  },
+  "update": {
+    "manifest_url": "https://raw.githubusercontent.com/hwahag568-code/RIL/main/update.json",
+    "legacy_version_url": "https://raw.githubusercontent.com/hwahag568-code/RIL/main/version.txt",
+    "legacy_client_installer_url": "https://github.com/hwahag568-code/RIL/releases/download/Update/Update_RIL.exe",
+    "artifact_url_template": "https://github.com/{repository}/releases/download/{tag}/{filename}",
+    "request_timeout_seconds": 3,
+    "download_connect_timeout_seconds": 5,
+    "download_read_timeout_seconds": 30,
+    "download_total_timeout_seconds": 900,
+    "mutex_wait_seconds": 10,
+    "client": {
+      "automatic": true,
+      "installer_arguments": [
+        "/S"
+      ],
+      "process_exit_timeout_seconds": 30,
+      "startup_health_timeout_seconds": 15,
+      "temporary_filename_template": "RIL_Client_Update_{version}.exe"
+    },
+    "server": {
+      "automatic": true,
+      "initial_delay_seconds": 60,
+      "check_interval_seconds": 3600,
+      "thread_join_timeout_seconds": 5,
+      "helper_start_timeout_seconds": 15,
+      "helper_start_poll_interval_seconds": 0.1,
+      "parent_exit_timeout_seconds": 30,
+      "installer_timeout_seconds": 300,
+      "health_timeout_seconds": 90,
+      "health_poll_interval_seconds": 2,
+      "state_stale_timeout_seconds": 1800,
+      "drain_timeout_seconds": 240,
+      "failure_retry_delay_seconds": 21600,
+      "power_shell_executable": "powershell.exe",
+      "installer_arguments": [
+        "/S",
+        "/UPDATE"
+      ],
+      "temporary_filename_template": "RIL_Server_Update_{version}.exe"
+    }
+  },
+  "network": {
+    "port": 2023,
+    "max_message_size_bytes": 65536,
+    "message_chunk_size_bytes": 1024,
+    "server_backlog": 32,
+    "server_accept_poll_interval_seconds": 0.5,
+    "server_client_timeout_seconds": 10,
+    "connect_timeout_seconds": 3,
+    "send_timeout_seconds": 5,
+    "request_response_timeout_seconds": 120,
+    "cancel_poll_interval_seconds": 0.5,
+    "result_connect_timeout_seconds": 3,
+    "result_read_timeout_seconds": 240,
+    "connect_attempts": 1,
+    "connect_retry_delay_seconds": 0.25,
+    "capability_timeout_seconds": 5,
+    "capability_cache_ttl_seconds": 60,
+    "login_response_timeout_seconds": 240,
+    "direct_result_max_attempts": 2,
+    "legacy_total_timeout_seconds": 240,
+    "legacy_connect_timeout_seconds": 3,
+    "legacy_read_timeout_seconds": 240,
+    "legacy_retry_delay_seconds": 2,
+    "legacy_command_connect_attempts": 4,
+    "legacy_command_connect_retry_delay_seconds": 0.25
+  },
+  "protocol": {
+    "general_command": "INT",
+    "osmo_command": "OC",
+    "nova_command": "Nova",
+    "capabilities_command": "CAPS",
+    "busy_result_code": "server_busy",
+    "direct_result_features": [
+      "request_id",
+      "direct_result"
+    ],
+    "result_codes": [
+      "int_success",
+      "int_failed",
+      "int_failed_1",
+      "int_failed_2",
+      "int_failed_1_2"
+    ],
+    "current_au_commands": {
+      "AU1": 1,
+      "AU2": 2,
+      "AU3": 3
+    },
+    "legacy_au_commands": {
+      "AU22": 1,
+      "AU32": 2
+    },
+    "legacy_client_commands": {
+      "AU1": "AU22",
+      "AU2": "AU32"
+    },
+    "legacy_result_command": "R",
+    "request_id_max_length": 128
+  },
+  "client": {
+    "window_title_template": "인터페이스 원격로그인 프로그램(client) v{version}",
+    "initial_window_position": [
+      200,
+      100
+    ],
+    "log_filename_prefix": "RIL_client_Log_",
+    "credential_id_length": 5
+  },
+  "server": {
+    "window_title_template": "인터페이스 원격로그인 프로그램 서버 v{version}",
+    "log_filename_prefix": "RIL_server_Log_",
+    "stdout_log_filename": "server_output_log.txt",
+    "stderr_log_filename": "server_error_log.txt",
+    "process_to_close_after_listen": "PIAgent.exe",
+    "legacy_result_ttl_seconds": 300,
+    "direct_result_ttl_seconds": 600,
+    "login_execution_timeout_seconds": 210,
+    "ial_child_join_timeout_seconds": 5,
+    "instance_mutex_name": "Global\\KUMC_RIL_Server",
+    "restart_delay_seconds": 5,
+    "supervisor_poll_interval_seconds": 1,
+    "supervisor_join_timeout_seconds": 5,
+    "wakeup_refresh_interval_seconds": 1500
+  },
+  "interfaces": {
+    "executable_names": {
+      "general": "Ui.Kumc.GR.Interface.exe",
+      "osmo_1": "OM6060-1.exe",
+      "osmo_2": "OM6060-2.exe",
+      "nova_1": "NovaStatProfilePrime_1.exe",
+      "nova_2": "NovaStatProfilePrime_2.exe",
+      "au_result": "AU_RSLT.exe"
+    },
+    "general": {
+      "configured_executable_paths": [
+        "C:\\Program Files\\LIS_Interface\\차세대\\Ui.Kumc.GR.Interface.exe",
+        "C:\\Program Files (x86)\\LIS_Interface\\차세대\\Ui.Kumc.GR.Interface.exe"
+      ],
+      "discovery_roots": [
+        "C:\\Program Files\\LIS_Interface",
+        "C:\\Program Files (x86)\\LIS_Interface"
+      ],
+      "success_title_contains": "INTERFACE",
+      "rejected_title_markers": [
+        "ui.kumc.gr.interface",
+        "just-in-time",
+        ".net framework",
+        "오류",
+        "예외",
+        "로그인"
+      ]
+    },
+    "osmo": {
+      "1": {
+        "directory": "C:\\Program Files (x86)\\LIS_INTERFACE\\OM6060-1",
+        "title": "OM6060-1"
+      },
+      "2": {
+        "directory": "C:\\Program Files (x86)\\LIS_INTERFACE\\OM6060-2",
+        "title": "OM6060-2"
+      }
+    },
+    "nova": {
+      "1": {
+        "directory": "C:\\Program Files (x86)\\LIS_Interface\\NovaStatProfilePrime_1",
+        "title": "NovaStatProfilePrime 1"
+      },
+      "2": {
+        "directory": "C:\\Program Files (x86)\\LIS_Interface\\NovaStatProfilePrime_2",
+        "title": "NovaStatProfilePrime 2"
+      }
+    },
+    "au": {
+      "1": {
+        "order_directory": "C:\\Program Files\\LIS_Interface\\AU_5822",
+        "result_directory": "C:\\Program Files\\LIS_Interface\\AU_5822_RSLT",
+        "order_title": "차세대 AU_1 INTERFACE",
+        "result_title": "AU_1 Result INTERFACE"
+      },
+      "2": {
+        "order_directory": "C:\\Program Files\\LIS_Interface\\AU_5832",
+        "result_directory": "C:\\Program Files\\LIS_Interface\\AU_5832_RSLT",
+        "order_title": "차세대 AU_2 INTERFACE",
+        "result_title": "AU_2 Result INTERFACE"
+      },
+      "3": {
+        "order_directory": "C:\\Program Files (x86)\\LIS_Interface\\AU_3",
+        "result_directory": "C:\\Program Files (x86)\\LIS_Interface\\AU_3_RSLT",
+        "order_title": "차세대 AU_3 INTERFACE",
+        "result_title": "AU_3 Result INTERFACE"
+      }
+    },
+    "automation": {
+      "login_window_title": "로그인",
+      "login_timeout_seconds": 30,
+      "login_poll_interval_seconds": 0.5,
+      "window_wait_poll_interval_seconds": 0.5,
+      "process_stop_timeout_seconds": 5,
+      "process_force_wait_seconds": 1,
+      "general_window_timeout_seconds": 20,
+      "component_window_timeout_seconds": 15,
+      "launch_attempts": 2,
+      "launch_retry_delay_seconds": 0.5,
+      "between_component_delay_seconds": 2,
+      "default_alignment_delay_seconds": 4,
+      "osmo_alignment_delay_seconds": 7,
+      "alignment_attempts": 10,
+      "alignment_retry_interval_seconds": 1,
+      "responsive_check_attempts": 30,
+      "responsive_check_timeout_ms": 500,
+      "activation_attempts": 10,
+      "activation_click_offset": [
+        150,
+        15
+      ],
+      "activation_click_delay_seconds": 0.1,
+      "activation_retry_delay_seconds": 0.5,
+      "focus_settle_delay_seconds": 0.5,
+      "window_move_settle_delay_seconds": 0.2,
+      "id_input_delay_seconds": 0.3,
+      "password_input_delay_seconds": 0.3,
+      "special_focus_computer_names": [
+        "DESKTOP-TRJ4K0C"
+      ]
+    }
+  },
+  "devices": {
+    "order": [
+      "D1",
+      "D2",
+      "Cobas",
+      "Al1",
+      "Al3",
+      "AU1",
+      "AU2",
+      "AU3",
+      "pHox",
+      "Presep",
+      "UA",
+      "OC",
+      "Nova"
+    ],
+    "definitions": {
+      "D1": {
+        "display_name": "DxI 1",
+        "ip": "10.2.151.241",
+        "command": "INT",
+        "groups": [
+          "IA",
+          "DxI",
+          "dangjik",
+          "nojochul"
+        ]
+      },
+      "D2": {
+        "display_name": "DxI 2",
+        "ip": "10.2.151.242",
+        "command": "INT",
+        "groups": [
+          "IA",
+          "DxI",
+          "dangjik",
+          "nojochul"
+        ]
+      },
+      "Cobas": {
+        "display_name": "Cobas",
+        "ip": "10.2.151.243",
+        "command": "INT",
+        "groups": [
+          "IA",
+          "dangjik",
+          "nojochul"
+        ]
+      },
+      "Al1": {
+        "display_name": "Alinity 1",
+        "ip": "10.2.151.52",
+        "command": "INT",
+        "groups": [
+          "IA",
+          "Alinity",
+          "dangjik",
+          "nojochul"
+        ]
+      },
+      "Al3": {
+        "display_name": "Alinity 3",
+        "ip": "10.2.151.53",
+        "command": "INT",
+        "groups": [
+          "IA",
+          "Alinity",
+          "dangjik",
+          "nojochul"
+        ]
+      },
+      "AU1": {
+        "display_name": "AU 1",
+        "ip": "10.2.151.236",
+        "command": "AU1",
+        "groups": [
+          "CH",
+          "AU",
+          "dangjik",
+          "nojochul"
+        ]
+      },
+      "AU2": {
+        "display_name": "AU 2",
+        "ip": "10.2.151.235",
+        "command": "AU2",
+        "groups": [
+          "CH",
+          "AU",
+          "dangjik",
+          "nojochul"
+        ]
+      },
+      "AU3": {
+        "display_name": "AU 3",
+        "ip": "10.2.151.219",
+        "command": "AU3",
+        "groups": [
+          "CH",
+          "AU",
+          "nojochul"
+        ]
+      },
+      "pHox": {
+        "display_name": "pHox ultra",
+        "ip": "10.2.151.181",
+        "command": "INT",
+        "groups": [
+          "CH",
+          "dangjik",
+          "jochul"
+        ]
+      },
+      "Presep": {
+        "display_name": "Presepsin",
+        "ip": "10.2.151.186",
+        "command": "INT",
+        "groups": [
+          "CH",
+          "dangjik",
+          "jochul"
+        ]
+      },
+      "UA": {
+        "display_name": "UA",
+        "ip": "10.2.151.209",
+        "command": "INT",
+        "groups": [
+          "CH",
+          "dangjik",
+          "jochul"
+        ]
+      },
+      "OC": {
+        "display_name": "Osmo",
+        "ip": "10.2.151.171",
+        "command": "OC",
+        "groups": [
+          "CH",
+          "dangjik",
+          "jochul"
+        ]
+      },
+      "Nova": {
+        "display_name": "Nova Prime",
+        "ip": "10.2.151.183",
+        "command": "Nova",
+        "groups": [
+          "CH",
+          "dangjik",
+          "jochul"
+        ]
+      }
+    }
+  }
+}

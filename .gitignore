@@ -1,0 +1,13 @@
+/build/
+/dist/RIL_client/
+/dist/RIL_server/
+/dist/RIL_server.exe
+/dist/ril_build_info.json
+/release/
+__pycache__/
+*.py[cod]
+RIL_client_Log_*.txt
+RIL_server_Log_*.txt
+server_error_log.txt
+server_output_log.txt
+ril_config.local.json
