@@ -10,6 +10,12 @@ import sys
 CONFIG_FILENAME = "ril_config.json"
 LOCAL_CONFIG_FILENAME = "ril_config.local.json"
 CONFIG_ENVIRONMENT_VARIABLE = "RIL_CONFIG_PATH"
+CLIENT_INSTALLED_CONFIG_FILENAME = "ril-client-installed.json"
+SERVER_INSTALLED_CONFIG_FILENAME = "ril-server-installed.json"
+_COMPONENT_CONFIG_FILENAMES = {
+    "client": CLIENT_INSTALLED_CONFIG_FILENAME,
+    "server": SERVER_INSTALLED_CONFIG_FILENAME,
+}
 
 
 class ConfigError(RuntimeError):
@@ -27,6 +33,29 @@ def bundled_directory():
     if bundle_path:
         return Path(bundle_path).resolve()
     return Path(__file__).resolve().parent
+
+
+def select_component_config(component, application_dir=None):
+    if component not in _COMPONENT_CONFIG_FILENAMES:
+        raise ConfigError(f"지원하지 않는 구성요소입니다: {component}")
+
+    configured_path = os.environ.get(CONFIG_ENVIRONMENT_VARIABLE)
+    if configured_path:
+        return Path(configured_path).expanduser().resolve()
+
+    base_directory = (
+        Path(application_dir).resolve()
+        if application_dir is not None
+        else application_directory()
+    )
+    component_path = (
+        base_directory / _COMPONENT_CONFIG_FILENAMES[component]
+    ).resolve()
+    if not component_path.is_file():
+        return None
+
+    os.environ[CONFIG_ENVIRONMENT_VARIABLE] = str(component_path)
+    return component_path
 
 
 def resource_path(filename):

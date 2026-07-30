@@ -523,7 +523,9 @@ class ConfigurationTests(unittest.TestCase):
 
     def test_installers_ship_base_config_but_preserve_local_config(self):
         expected_base_config = {
-            "RIL_Client_Update.nsi": 'File "${CONFIG_FILE}"',
+            "RIL_Client_Update.nsi": (
+                'File /oname=ril_config.json "${CONFIG_FILE}"'
+            ),
             "RIL_Server_Setup.nsi": (
                 'File /oname=ril_config.json "${CONFIG_FILE}"'
             ),

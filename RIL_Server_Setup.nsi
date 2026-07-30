@@ -177,6 +177,7 @@ Section "Server"
     File "dist\make_setup\${SERVER_RESTARTER_PS1}"
     File "dist\make_setup\${SERVER_UPDATE_HELPER}"
     File /oname=ril_config.json "${CONFIG_FILE}"
+    File /oname=ril-server-installed.json "${CONFIG_FILE}"
     File "${ICON_FILE}"
     SetOutPath "$PLUGINSDIR"
 

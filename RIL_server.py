@@ -1,6 +1,11 @@
+import os
+import sys
+from ril_config import select_component_config
+
+select_component_config("server")
+
 import mynetlib
 import IAL
-import sys, os
 import ctypes, time
 from copy import deepcopy
 from collections import deque
@@ -70,6 +75,14 @@ IAL_CHILD_JOIN_TIMEOUT = _SERVER["ial_child_join_timeout_seconds"]
 DIRECT_INFLIGHT_WAIT_TIMEOUT = (
     LOGIN_EXECUTION_TIMEOUT + (2 * IAL_CHILD_JOIN_TIMEOUT)
 )
+IAL_CONTROL_WAIT_TIMEOUT = (
+    (2 * IAL_CHILD_JOIN_TIMEOUT)
+    + mynetlib.DEFAULT_CANCEL_POLL_INTERVAL
+)
+IAL_IDENTITY_READY_TIMEOUT = (
+    IAL_CHILD_JOIN_TIMEOUT
+    + mynetlib.DEFAULT_CANCEL_POLL_INTERVAL
+)
 INSTANCE_MUTEX_NAME = _SERVER["instance_mutex_name"]
 SERVER_PORT = _NETWORK["port"]
 MESSAGE_CHUNK_SIZE = _NETWORK["message_chunk_size_bytes"]
@@ -94,6 +107,65 @@ _result_cache_lock = threading.RLock()
 _ial_execution_lock = threading.Lock()
 _instance_mutex_handle = None
 _instance_mutex_kernel32 = None
+
+
+class _IalWorkerControl:
+    """Cross-process control and exact identity for one IAL worker."""
+
+    def __init__(self):
+        self.cancel_event = multiprocessing.Event()
+        self.idle_event = multiprocessing.Event()
+        self.idle_event.set()
+        self.identity_ready_event = multiprocessing.Event()
+        self.start_lock = multiprocessing.Lock()
+        self.pid = multiprocessing.Value("q", 0, lock=False)
+        self.create_time = multiprocessing.Value("d", 0.0, lock=False)
+        self.owner_pid = multiprocessing.Value("q", 0, lock=False)
+        self.generation = multiprocessing.Value("Q", 0, lock=False)
+
+
+def _publish_ial_worker_identity(
+    control,
+    *,
+    pid,
+    create_time,
+    owner_pid,
+):
+    generation = int(control.generation.value)
+    if generation % 2:
+        generation += 1
+    control.generation.value = generation + 1
+    control.create_time.value = float(create_time)
+    control.owner_pid.value = int(owner_pid)
+    control.pid.value = int(pid)
+    control.generation.value = generation + 2
+
+
+def _read_ial_worker_identity(control):
+    for _ in range(10):
+        generation_before = int(control.generation.value)
+        if generation_before % 2:
+            continue
+        pid = int(control.pid.value)
+        create_time = float(control.create_time.value)
+        owner_pid = int(control.owner_pid.value)
+        generation_after = int(control.generation.value)
+        if (
+            generation_before == generation_after
+            and generation_after % 2 == 0
+        ):
+            return pid, create_time, owner_pid
+    return None
+
+
+def _clear_ial_worker_identity(control):
+    _publish_ial_worker_identity(
+        control,
+        pid=0,
+        create_time=0.0,
+        owner_pid=0,
+    )
+    control.identity_ready_event.clear()
 
 
 class _LegacyResultState:
@@ -377,20 +449,179 @@ def _ial_request_worker(
     user_id,
     password,
     command,
+    worker_control=None,
 ):
     try:
-        try:
-            status = _dispatch_ial_command(
-                user_id,
-                password,
-                command,
-            )
-        except Exception as error:
-            ErrorLog(f"StartTask 호출 중 예외 발생: {error!r}")
-            status = "int_failed"
+        if worker_control is not None:
+            try:
+                current_pid = os.getpid()
+                current_owner_pid = os.getppid()
+                current_create_time = psutil.Process(
+                    current_pid
+                ).create_time()
+                _publish_ial_worker_identity(
+                    worker_control,
+                    pid=current_pid,
+                    create_time=current_create_time,
+                    owner_pid=current_owner_pid,
+                )
+                worker_control.identity_ready_event.set()
+                identity = _read_ial_worker_identity(worker_control)
+                identity_matches = (
+                    identity is not None
+                    and identity[0] == current_pid
+                    and identity[2] == current_owner_pid
+                    and identity[1] == current_create_time
+                )
+            except (psutil.Error, OSError):
+                identity_matches = False
+
+            if (
+                worker_control.cancel_event.is_set()
+                or not identity_matches
+            ):
+                status = "int_failed"
+            else:
+                status = None
+        else:
+            status = None
+
+        if status is None:
+            if (
+                worker_control is not None
+                and worker_control.cancel_event.is_set()
+            ):
+                status = "int_failed"
+            else:
+                try:
+                    status = _dispatch_ial_command(
+                        user_id,
+                        password,
+                        command,
+                    )
+                except Exception as error:
+                    ErrorLog(
+                        f"StartTask 호출 중 예외 발생: {error!r}"
+                    )
+                    status = "int_failed"
         result_connection.send(status)
     finally:
         result_connection.close()
+
+
+def _start_ial_process(process, worker_control):
+    if worker_control is None:
+        process.start()
+        return True
+
+    worker_control.start_lock.acquire()
+    if worker_control.cancel_event.is_set():
+        worker_control.start_lock.release()
+        return False
+
+    worker_control.idle_event.clear()
+    _clear_ial_worker_identity(worker_control)
+    if worker_control.cancel_event.is_set():
+        worker_control.idle_event.set()
+        worker_control.start_lock.release()
+        return False
+
+    try:
+        process.start()
+    except BaseException:
+        started_pid = getattr(process, "pid", None)
+        if isinstance(started_pid, int) and started_pid > 0:
+            if not _stop_ial_process(process, terminate_first=True):
+                _fail_closed_for_unconfirmed_ial_worker(
+                    "IAL 작업 프로세스 시작 실패 후 종료를 "
+                    "확인하지 못했습니다."
+                )
+        _finish_ial_worker_shutdown(worker_control)
+        worker_control.start_lock.release()
+        raise
+
+    try:
+        if not worker_control.identity_ready_event.wait(
+            IAL_IDENTITY_READY_TIMEOUT
+        ):
+            raise RuntimeError(
+                "IAL 작업 프로세스가 제한시간 내에 "
+                "신원을 등록하지 못했습니다."
+            )
+
+        identity = _read_ial_worker_identity(worker_control)
+        if (
+            identity is None
+            or identity[0] != process.pid
+            or identity[2] != os.getpid()
+            or identity[1] <= 0
+        ):
+            raise RuntimeError(
+                "IAL 작업 프로세스가 잘못된 신원을 등록했습니다."
+            )
+    except _UnconfirmedIalWorkerTermination:
+        raise
+    except BaseException:
+        if _stop_ial_process(process, terminate_first=True):
+            _finish_ial_worker_shutdown(worker_control)
+            worker_control.start_lock.release()
+            raise
+        _fail_closed_for_unconfirmed_ial_worker(
+            "신원 등록 실패 후 IAL 작업 프로세스의 "
+            "종료를 확인하지 못했습니다."
+        )
+    return True
+
+
+def _release_ial_worker_slot(worker_control):
+    if worker_control is not None:
+        worker_control.start_lock.release()
+
+
+def _receive_ial_result(
+    result_reader,
+    command,
+    timeout,
+    worker_control,
+):
+    if worker_control is None:
+        if result_reader.poll(timeout):
+            try:
+                return result_reader.recv(), False, False
+            except EOFError:
+                ErrorLog(
+                    "IAL 작업 프로세스가 결과 없이 종료되었습니다: "
+                    f"command={command!r}"
+                )
+                return "int_failed", False, False
+        return "int_failed", True, False
+
+    deadline = time.monotonic() + timeout
+    while True:
+        if worker_control.cancel_event.is_set():
+            ErrorLog(
+                "서버 종료 요청으로 IAL 작업 프로세스를 "
+                f"중단합니다: command={command!r}"
+            )
+            return "int_failed", False, True
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return "int_failed", True, False
+        if result_reader.poll(
+            min(
+                mynetlib.DEFAULT_CANCEL_POLL_INTERVAL,
+                remaining,
+            )
+        ):
+            try:
+                return result_reader.recv(), False, False
+            except EOFError:
+                ErrorLog(
+                    "IAL 작업 프로세스가 결과 없이 종료되었습니다: "
+                    f"command={command!r}"
+                )
+                return "int_failed", False, False
 
 
 def _stop_ial_process(
@@ -398,13 +629,30 @@ def _stop_ial_process(
     join_timeout=IAL_CHILD_JOIN_TIMEOUT,
     terminate_first=False,
 ):
-    if terminate_first and process.is_alive():
-        process.terminate()
-    process.join(timeout=join_timeout)
-    if process.is_alive():
-        process.kill()
+    try:
+        if terminate_first and process.is_alive():
+            process.terminate()
         process.join(timeout=join_timeout)
-    return not process.is_alive()
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=join_timeout)
+        return process.is_alive() is False
+    except (Exception, KeyboardInterrupt) as error:
+        ErrorLog(
+            "IAL 작업 프로세스 종료 확인 중 예외: "
+            f"{error!r}"
+        )
+        return False
+
+
+class _UnconfirmedIalWorkerTermination(BaseException):
+    pass
+
+
+def _fail_closed_for_unconfirmed_ial_worker(message):
+    ErrorLog(message)
+    os._exit(70)
+    raise _UnconfirmedIalWorkerTermination(message)
 
 
 def execute_ial_with_hard_timeout(
@@ -412,6 +660,7 @@ def execute_ial_with_hard_timeout(
     password,
     command,
     timeout=LOGIN_EXECUTION_TIMEOUT,
+    worker_control=None,
 ):
     """IAL 자동화를 별도 프로세스에서 실행해 실제 종료 가능한 제한을 둔다."""
     result_reader, result_writer = multiprocessing.Pipe(duplex=False)
@@ -422,52 +671,81 @@ def execute_ial_with_hard_timeout(
             user_id,
             password,
             command,
+            worker_control,
         ),
         name="RIL_IAL_Request",
     )
     started = False
     timed_out = False
+    cancelled = False
+    worker_stop_confirmed = False
+    worker_shutdown_uncertain = False
     try:
-        process.start()
+        if not _start_ial_process(process, worker_control):
+            return "int_failed"
         started = True
         result_writer.close()
 
-        if result_reader.poll(timeout):
-            try:
-                status = result_reader.recv()
-            except EOFError:
-                ErrorLog(
-                    "IAL 작업 프로세스가 결과 없이 종료되었습니다: "
-                    f"command={command!r}"
-                )
-                status = "int_failed"
-        else:
-            timed_out = True
+        status, timed_out, cancelled = _receive_ial_result(
+            result_reader,
+            command,
+            timeout,
+            worker_control,
+        )
+        if timed_out:
             ErrorLog(
                 "로그인 명령 실행 제한 시간 초과 - "
                 "IAL 작업 프로세스 종료: "
                 f"command={command!r}"
             )
-            status = "int_failed"
 
         stopped = _stop_ial_process(
             process,
-            terminate_first=timed_out,
+            terminate_first=timed_out or cancelled,
         )
         if not stopped:
-            ErrorLog(
+            worker_shutdown_uncertain = True
+            _fail_closed_for_unconfirmed_ial_worker(
                 "IAL 작업 프로세스를 강제 종료하지 못해 "
                 "서버 프로세스를 종료합니다."
             )
-            os._exit(70)
+        worker_stop_confirmed = True
         return status
+    except _UnconfirmedIalWorkerTermination:
+        worker_shutdown_uncertain = True
+        raise
     finally:
+        if (
+            started
+            and not worker_stop_confirmed
+            and not worker_shutdown_uncertain
+        ):
+            worker_stop_confirmed = _stop_ial_process(
+                process,
+                terminate_first=True,
+            )
+            if not worker_stop_confirmed:
+                worker_shutdown_uncertain = True
+                _fail_closed_for_unconfirmed_ial_worker(
+                    "예외 처리 중 IAL 작업 프로세스의 "
+                    "종료를 확인하지 못했습니다."
+                )
+        if (
+            worker_control is not None
+            and not worker_shutdown_uncertain
+            and (not started or worker_stop_confirmed)
+        ):
+            _clear_ial_worker_identity(worker_control)
+            worker_control.idle_event.set()
+        if (
+            worker_control is not None
+            and started
+            and worker_stop_confirmed
+        ):
+            _release_ial_worker_slot(worker_control)
         result_reader.close()
         if not started:
             result_writer.close()
-        elif process.is_alive():
-            if not _stop_ial_process(process, terminate_first=True):
-                os._exit(70)
 
 
 def _restart_command():
@@ -543,7 +821,7 @@ def wakeup():
     finally:
         kernel32.SetThreadExecutionState(ES_CONTINUOUS)
 
-def do_work_server(client, addr):
+def do_work_server(client, addr, ial_worker_control=None):
     print('client :', addr)
     try:
         serverip = client.getsockname()[0]
@@ -761,7 +1039,15 @@ def do_work_server(client, addr):
 
     try:
         try:
-            status = execute_ial_with_hard_timeout(a, b, c)
+            execute_options = {}
+            if ial_worker_control is not None:
+                execute_options["worker_control"] = ial_worker_control
+            status = execute_ial_with_hard_timeout(
+                a,
+                b,
+                c,
+                **execute_options,
+            )
         except Exception as e:
             ErrorLog(f"IAL 작업 프로세스 실행 중 예외 발생: {e!r}")
             status = "int_failed"
@@ -796,9 +1082,17 @@ def do_work_server(client, addr):
         )
 
 
-def do_work_server_safely(client, addr):
+def do_work_server_safely(
+    client,
+    addr,
+    ial_worker_control=None,
+):
     try:
-        do_work_server(client, addr)
+        do_work_server(
+            client,
+            addr,
+            ial_worker_control=ial_worker_control,
+        )
     except Exception as error:
         ErrorLog(
             "클라이언트 요청 처리 중 예외: "
@@ -1190,6 +1484,7 @@ def run_server2(
     activity_event=None,
     drain_requested_event=None,
     drain_complete_event=None,
+    ial_worker_control=None,
 ):
     # listener는 서버 프로세스 수명 동안 유지한다. bind/listen 실패는
     # 상위 watchdog이 감지할 수 있도록 이 프로세스를 종료시킨다.
@@ -1203,7 +1498,11 @@ def run_server2(
             if activity_event is not None:
                 activity_event.set()
         try:
-            do_work_server_safely(client_socket, address)
+            do_work_server_safely(
+                client_socket,
+                address,
+                ial_worker_control=ial_worker_control,
+            )
         finally:
             with activity_lock:
                 active_request_count -= 1
@@ -1222,12 +1521,170 @@ def run_server2(
             stop_event=drain_requested_event,
             concurrent_handlers=True,
         )
-    finally:
+    except BaseException:
+        raise
+    else:
         if drain_complete_event is not None:
             drain_complete_event.set()
 
 
-def _stop_processes(processes, join_timeout):
+def _finish_ial_worker_shutdown(control):
+    _clear_ial_worker_identity(control)
+    control.idle_event.set()
+
+
+def _ial_worker_control_is_confirmed_idle(control):
+    if not control.idle_event.is_set():
+        return False
+    identity = _read_ial_worker_identity(control)
+    return (
+        identity == (0, 0.0, 0)
+        and not control.identity_ready_event.is_set()
+    )
+
+
+def _stop_exact_tracked_ial_worker(
+    control,
+    server_process,
+    join_timeout,
+):
+    identity = _read_ial_worker_identity(control)
+    if identity is None:
+        raise RuntimeError(
+            "IAL 작업 프로세스 신원 상태가 불안정합니다."
+        )
+    pid, expected_create_time, owner_pid = identity
+    if pid <= 0:
+        raise RuntimeError(
+            "IAL 작업 프로세스 종료 여부를 확인할 수 없습니다."
+        )
+
+    listener_pid = getattr(server_process, "pid", None)
+    if listener_pid is not None and owner_pid != int(listener_pid):
+        raise RuntimeError(
+            "IAL 작업 프로세스 소유자가 listener와 일치하지 않습니다."
+        )
+
+    try:
+        worker = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        _finish_ial_worker_shutdown(control)
+        return
+
+    try:
+        actual_create_time = worker.create_time()
+    except psutil.NoSuchProcess:
+        _finish_ial_worker_shutdown(control)
+        return
+    except psutil.Error as error:
+        raise RuntimeError(
+            "IAL 작업 프로세스 신원을 확인하지 못했습니다."
+        ) from error
+
+    if actual_create_time != expected_create_time:
+        ErrorLog(
+            "IAL worker PID가 다른 프로세스에 재사용되어 "
+            f"종료하지 않습니다: pid={pid}"
+        )
+        _finish_ial_worker_shutdown(control)
+        return
+
+    try:
+        listener_alive = server_process.is_alive()
+    except (AttributeError, OSError):
+        listener_alive = False
+    if listener_alive:
+        try:
+            if worker.ppid() != owner_pid:
+                raise RuntimeError(
+                    "IAL 작업 프로세스의 실제 부모가 listener와 "
+                    "일치하지 않습니다."
+                )
+        except psutil.NoSuchProcess:
+            _finish_ial_worker_shutdown(control)
+            return
+        except psutil.Error as error:
+            raise RuntimeError(
+                "IAL 작업 프로세스 부모를 확인하지 못했습니다."
+            ) from error
+
+    try:
+        worker.terminate()
+        try:
+            worker.wait(timeout=join_timeout)
+        except psutil.TimeoutExpired:
+            worker.kill()
+            worker.wait(timeout=join_timeout)
+    except psutil.NoSuchProcess:
+        pass
+    except (
+        psutil.Error,
+        OSError,
+    ) as error:
+        raise RuntimeError(
+            "IAL 작업 프로세스를 종료하지 못했습니다."
+        ) from error
+
+    _finish_ial_worker_shutdown(control)
+
+
+def _stop_controlled_ial_worker(
+    control,
+    server_process,
+    join_timeout,
+):
+    if control is None:
+        return
+
+    control.cancel_event.set()
+    try:
+        listener_alive = server_process.is_alive()
+    except (AttributeError, OSError):
+        listener_alive = False
+    if listener_alive:
+        lock_acquired = control.start_lock.acquire(
+            timeout=IAL_CHILD_JOIN_TIMEOUT
+        )
+        if lock_acquired:
+            control.start_lock.release()
+    wait_timeout = IAL_CONTROL_WAIT_TIMEOUT if listener_alive else 0
+    control.idle_event.wait(wait_timeout)
+    if _ial_worker_control_is_confirmed_idle(control):
+        return
+
+    if not control.identity_ready_event.is_set():
+        control.identity_ready_event.wait(
+            IAL_IDENTITY_READY_TIMEOUT
+        )
+    if _ial_worker_control_is_confirmed_idle(control):
+        return
+
+    _stop_exact_tracked_ial_worker(
+        control,
+        server_process,
+        join_timeout,
+    )
+
+
+def _stop_processes(
+    processes,
+    join_timeout,
+    ial_worker_control=None,
+    server_process=None,
+):
+    if ial_worker_control is not None:
+        if server_process is None and len(processes) > 1:
+            server_process = processes[1]
+        if server_process is None:
+            raise RuntimeError(
+                "IAL 작업 프로세스 소유 listener가 없습니다."
+            )
+        _stop_controlled_ial_worker(
+            ial_worker_control,
+            server_process,
+            join_timeout,
+        )
+
     for process in processes:
         if process.is_alive():
             process.terminate()
@@ -1264,6 +1721,29 @@ def _stop_processes(processes, join_timeout):
         raise RuntimeError(message)
 
 
+def _cancel_durable_server_update(pending_update):
+    try:
+        write_server_update_state(
+            "cancelled",
+            target_version=pending_update["version"],
+            installer_path=pending_update["installer_path"],
+            cancel_reason="requested_stop",
+        )
+    except Exception as state_error:
+        ErrorLog(
+            "서버 업데이트 취소 상태 기록 실패 - "
+            "draining 상태 파일을 제거합니다: "
+            f"{state_error!r}"
+        )
+        try:
+            server_update_state_path().unlink(missing_ok=True)
+        except OSError as remove_error:
+            ErrorLog(
+                "서버 업데이트 draining 상태 파일 제거 실패: "
+                f"{remove_error!r}"
+            )
+
+
 def run_supervised_processes(
     tray_process,
     server_process,
@@ -1279,6 +1759,7 @@ def run_supervised_processes(
     activity_event=None,
     drain_requested_event=None,
     drain_complete_event=None,
+    ial_worker_control=None,
 ):
     processes = [
         tray_process,
@@ -1291,7 +1772,12 @@ def run_supervised_processes(
             process.start()
             started_processes.append(process)
     except Exception:
-        _stop_processes(started_processes, join_timeout)
+        _stop_processes(
+            started_processes,
+            join_timeout,
+            ial_worker_control=ial_worker_control,
+            server_process=server_process,
+        )
         raise
 
     pending_update = None
@@ -1300,7 +1786,14 @@ def run_supervised_processes(
         if requested_stop is not None and requested_stop.is_set():
             ErrorLog("tray 사용자 종료 - 프로그램 종료")
             print("tray 사용자 종료 - 프로그램 종료")
-            _stop_processes(processes, join_timeout)
+            _stop_processes(
+                processes,
+                join_timeout,
+                ial_worker_control=ial_worker_control,
+                server_process=server_process,
+            )
+            if pending_update is not None and drain_started_at is not None:
+                _cancel_durable_server_update(pending_update)
             return "stop"
 
         if pending_update is None and update_queue is not None:
@@ -1329,10 +1822,28 @@ def run_supervised_processes(
                 and time.monotonic() - drain_started_at
                 >= _SERVER_UPDATE["drain_timeout_seconds"]
             )
+            listener_dead_during_drain = (
+                pending_update is not None
+                and drain_started_at is not None
+                and not drain_complete
+                and not server_process.is_alive()
+            )
             update_ready = (
                 pending_update is not None
-                and (drain_complete or drain_timed_out)
+                and (
+                    drain_complete
+                    or drain_timed_out
+                    or listener_dead_during_drain
+                )
             )
+            if drain_complete:
+                drain_reason = "listener_ack"
+            elif listener_dead_during_drain:
+                drain_reason = "listener_dead"
+            elif drain_timed_out:
+                drain_reason = "timeout"
+            else:
+                drain_reason = None
         else:
             server_busy = (
                 activity_event is not None
@@ -1343,26 +1854,36 @@ def run_supervised_processes(
                 pending_update is not None
                 and not server_busy
             )
+            drain_reason = "activity_idle" if update_ready else None
 
         if update_ready:
-            if (
-                drain_complete_event is not None
-                and not drain_complete_event.is_set()
-            ):
+            if drain_reason == "timeout":
                 ErrorLog(
                     "서버 업데이트 drain 제한시간 초과 - "
                     "자식 프로세스를 종료합니다."
+                )
+            elif drain_reason == "listener_dead":
+                ErrorLog(
+                    "서버 업데이트 drain 중 listener가 종료되어 "
+                    "검증된 업데이트를 우선 진행합니다: "
+                    "reason=listener_dead"
                 )
             ErrorLog(
                 "검증된 서버 업데이트 설치를 위해 "
                 "자식 프로세스를 종료합니다."
             )
-            _stop_processes(processes, join_timeout)
+            _stop_processes(
+                processes,
+                join_timeout,
+                ial_worker_control=ial_worker_control,
+                server_process=server_process,
+            )
             try:
                 write_server_update_state(
                     "draining_complete",
                     target_version=pending_update["version"],
                     installer_path=pending_update["installer_path"],
+                    drain_reason=drain_reason,
                 )
                 update_launcher(pending_update)
             except Exception as error:
@@ -1392,53 +1913,94 @@ def run_supervised_processes(
                 return "restart"
             return "update"
 
+        durable_drain_active = (
+            pending_update is not None
+            and drain_started_at is not None
+        )
+
         if not tray_process.is_alive():
-            if tray_factory is None:
+            if durable_drain_active:
+                ErrorLog(
+                    "서버 업데이트 drain 중 tray가 종료되어 "
+                    "전체 재시작을 생략합니다."
+                )
+            elif tray_factory is None:
                 ErrorLog("tray 비정상 종료 - 프로그램 재시작")
                 print("tray 비정상 종료 - 프로그램 재시작")
-                _stop_processes(processes, join_timeout)
+                _stop_processes(
+                    processes,
+                    join_timeout,
+                    ial_worker_control=ial_worker_control,
+                    server_process=server_process,
+                )
                 restart()
                 return "restart"
-
-            ErrorLog("tray 비정상 종료 - tray만 재시작")
-            print("tray 비정상 종료 - tray만 재시작")
-            tray_process.join(timeout=join_timeout)
-            try:
-                replacement_tray = tray_factory()
-                replacement_tray.start()
-            except Exception as error:
-                ErrorLog(f"tray 재시작 실패: {error!r}")
             else:
-                tray_process = replacement_tray
-                processes[0] = replacement_tray
+                ErrorLog("tray 비정상 종료 - tray만 재시작")
+                print("tray 비정상 종료 - tray만 재시작")
+                tray_process.join(timeout=join_timeout)
+                try:
+                    replacement_tray = tray_factory()
+                    replacement_tray.start()
+                except Exception as error:
+                    ErrorLog(f"tray 재시작 실패: {error!r}")
+                else:
+                    tray_process = replacement_tray
+                    processes[0] = replacement_tray
 
         if not server_process.is_alive():
-            ErrorLog("server종료 - 프로그램 재시작")
-            print("server종료 - 프로그램 재시작")
-            _stop_processes(processes, join_timeout)
-            restart()
-            return "restart"
+            if durable_drain_active:
+                ErrorLog(
+                    "서버 업데이트 drain 중 listener가 종료되어 "
+                    "다음 감독 주기에서 업데이트를 진행합니다."
+                )
+            else:
+                ErrorLog("server종료 - 프로그램 재시작")
+                print("server종료 - 프로그램 재시작")
+                _stop_processes(
+                    processes,
+                    join_timeout,
+                    ial_worker_control=ial_worker_control,
+                    server_process=server_process,
+                )
+                restart()
+                return "restart"
 
         if not wakeup_process.is_alive():
-            if wakeup_factory is None:
+            if durable_drain_active:
+                ErrorLog(
+                    "서버 업데이트 drain 중 wakeup이 종료되어 "
+                    "전체 재시작을 생략합니다."
+                )
+            elif wakeup_factory is None:
                 ErrorLog("wakeup종료 - 프로그램 재시작")
                 print("wakeup종료 - 프로그램 재시작")
-                _stop_processes(processes, join_timeout)
+                _stop_processes(
+                    processes,
+                    join_timeout,
+                    ial_worker_control=ial_worker_control,
+                    server_process=server_process,
+                )
                 restart()
                 return "restart"
-
-            ErrorLog("wakeup종료 - wakeup만 재시작")
-            print("wakeup종료 - wakeup만 재시작")
-            wakeup_process.join(timeout=join_timeout)
-            try:
-                wakeup_process = wakeup_factory()
-                wakeup_process.start()
-            except Exception as error:
-                ErrorLog(f"wakeup 재시작 실패: {error!r}")
-                _stop_processes(processes, join_timeout)
-                restart()
-                return "restart"
-            processes[2] = wakeup_process
+            else:
+                ErrorLog("wakeup종료 - wakeup만 재시작")
+                print("wakeup종료 - wakeup만 재시작")
+                wakeup_process.join(timeout=join_timeout)
+                try:
+                    wakeup_process = wakeup_factory()
+                    wakeup_process.start()
+                except Exception as error:
+                    ErrorLog(f"wakeup 재시작 실패: {error!r}")
+                    _stop_processes(
+                        processes,
+                        join_timeout,
+                        ial_worker_control=ial_worker_control,
+                        server_process=server_process,
+                    )
+                    restart()
+                    return "restart"
+                processes[2] = wakeup_process
 
         time.sleep(poll_interval)
 
@@ -1459,6 +2021,7 @@ if __name__ == "__main__":
         server_activity = multiprocessing.Event()
         update_drain_requested = multiprocessing.Event()
         update_drain_complete = multiprocessing.Event()
+        ial_worker_control = _IalWorkerControl()
         update_ready_queue = queue.Queue(maxsize=1)
         update_stop_event, update_thread = (
             start_server_update_monitor(update_ready_queue)
@@ -1477,6 +2040,7 @@ if __name__ == "__main__":
                 server_activity,
                 update_drain_requested,
                 update_drain_complete,
+                ial_worker_control,
             ),
         )
         p2 = mp(target=wakeup)
@@ -1494,6 +2058,7 @@ if __name__ == "__main__":
                 activity_event=server_activity,
                 drain_requested_event=update_drain_requested,
                 drain_complete_event=update_drain_complete,
+                ial_worker_control=ial_worker_control,
             )
         finally:
             update_stop_event.set()

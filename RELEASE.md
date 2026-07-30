@@ -5,7 +5,7 @@
 버전은 [`ril_config.json`](ril_config.json)의
 `release.version` 한 곳에서만 변경한다.
 
-현재 통합 릴리스: `260729.5`
+현재 통합 릴리스: `260730`
 
 - 첫 배포: `260728`
 - 같은 날 첫 핫픽스: `260728.1`
@@ -50,8 +50,11 @@ GitHub Release 태그와 `update.json`에 공통 적용된다.
 실행이나 업데이트에는 반드시 설치파일을 사용해야 하며, 실행 파일만
 따로 복사하면 동작하지 않는다. 컴포넌트별 런타임을 분리하므로 같은
 설치 루트에 두 역할이 있어도 서로의 Python DLL을 덮어쓰지 않는다.
-두 설치·업데이트·복구 작업은 공용 mutex로 직렬화되어 공유 설정 파일도
-동시에 교체하지 않는다. 겹친 작업은 JSON에 정한 제한시간까지만
+두 설치·업데이트·복구 작업은 공용 mutex로 직렬화되어 같은 설치
+폴더를 동시에 변경하지 않는다. 클라이언트와 서버는 각각
+`ril-client-installed.json`, `ril-server-installed.json`만
+트랜잭션으로 교체하며, 공용 `ril_config.json`은 구형 설치본의
+fallback으로 보존한다. 겹친 작업은 JSON에 정한 제한시간까지만
 기다리므로 무한 대기하지 않는다.
 
 ## 호환성 범위
@@ -115,7 +118,7 @@ GitHub Release 태그와 `update.json`에 공통 적용된다.
 ### 권장: 빌드부터 활성화까지 자동 실행
 
 ```powershell
-.\scripts\build_and_publish.ps1 -ExpectedVersion 260729.5
+.\scripts\build_and_publish.ps1 -ExpectedVersion 260730
 ```
 
 이 명령은 테스트와 서버·클라이언트 빌드, Stage 업로드, 원격 SHA-256

@@ -18,6 +18,7 @@
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 2.0
+$serverInstalledConfigName = "ril-server-installed.json"
 
 function Read-JsonFile {
     param([Parameter(Mandatory = $true)][string]$LiteralPath)
@@ -57,6 +58,18 @@ function Expand-ConfigPath {
     param([Parameter(Mandatory = $true)][string]$Value)
 
     return [Environment]::ExpandEnvironmentVariables($Value)
+}
+
+function Get-InstalledServerConfigPath {
+    param([Parameter(Mandatory = $true)][string]$InstalledPath)
+
+    $componentConfigPath = Join-Path (
+        [IO.Path]::GetFullPath($InstalledPath)
+    ) $serverInstalledConfigName
+    if (Test-Path -LiteralPath $componentConfigPath -PathType Leaf) {
+        return $componentConfigPath
+    }
+    return Join-Path ([IO.Path]::GetFullPath($InstalledPath)) "ril_config.json"
 }
 
 function Test-SamePath {
@@ -117,7 +130,7 @@ function Get-ServerFileNames {
         [string]$installation.server_restarter_script
         [string]$installation.server_restarter_power_shell_script
         [string]$installation.server_update_helper_script
-        "ril_config.json"
+        $serverInstalledConfigName
         [string]$installation.icon_file
     )
     foreach ($name in $names) {
@@ -923,9 +936,24 @@ function Start-Server {
     if (-not (Test-Path -LiteralPath $serverPath -PathType Leaf)) {
         throw "실행할 서버 파일이 없습니다: $serverPath"
     }
-    return Start-Process -FilePath $serverPath `
-        -WorkingDirectory $InstalledPath `
-        -PassThru
+    $selectedConfigPath = Get-InstalledServerConfigPath `
+        -InstalledPath $InstalledPath
+    $hadConfigEnvironment = Test-Path Env:RIL_CONFIG_PATH
+    $previousConfigEnvironment = $env:RIL_CONFIG_PATH
+    try {
+        $env:RIL_CONFIG_PATH = $selectedConfigPath
+        return Start-Process -FilePath $serverPath `
+            -WorkingDirectory $InstalledPath `
+            -PassThru
+    }
+    finally {
+        if ($hadConfigEnvironment) {
+            $env:RIL_CONFIG_PATH = $previousConfigEnvironment
+        }
+        else {
+            Remove-Item Env:RIL_CONFIG_PATH -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Publish-AutomaticMigrationState {
@@ -1086,13 +1114,12 @@ function Restore-PreviousInstallation {
     }
 
     $currentConfig = $newConfig
-    if (Test-Path -LiteralPath (
-        Join-Path $restoreInstallPath "ril_config.json"
-    ) -PathType Leaf) {
+    $currentConfigPath = Get-InstalledServerConfigPath `
+        -InstalledPath $restoreInstallPath
+    if (Test-Path -LiteralPath $currentConfigPath -PathType Leaf) {
         try {
-            $currentConfig = Read-JsonFile -LiteralPath (
-                Join-Path $restoreInstallPath "ril_config.json"
-            )
+            $currentConfig = Read-JsonFile `
+                -LiteralPath $currentConfigPath
         }
         catch {
         }
@@ -1186,9 +1213,8 @@ function Restore-PreviousInstallation {
         -Force -ErrorAction SilentlyContinue
 
     if ([bool]$State.previous_server_exists) {
-        $restoredConfigPath = Join-Path (
-            $restoreInstallPath
-        ) "ril_config.json"
+        $restoredConfigPath = Get-InstalledServerConfigPath `
+            -InstalledPath $restoreInstallPath
         if (Test-Path -LiteralPath $restoredConfigPath -PathType Leaf) {
             $restoredConfig = Read-JsonFile `
                 -LiteralPath $restoredConfigPath
@@ -1315,7 +1341,8 @@ if ($Mode -eq "ManualTransactional") {
 }
 
 $existingConfig = $null
-$installedConfigPath = Join-Path $installPath "ril_config.json"
+$installedConfigPath = Get-InstalledServerConfigPath `
+    -InstalledPath $installPath
 if (Test-Path -LiteralPath $installedConfigPath -PathType Leaf) {
     $existingConfig = Read-JsonFile -LiteralPath $installedConfigPath
 }

@@ -6,11 +6,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$serverInstalledConfigName = "ril-server-installed.json"
 $installPath = [IO.Path]::GetFullPath($InstallDir)
 if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
-    $ConfigPath = Join-Path $installPath "ril_config.json"
+    $componentConfigPath = Join-Path (
+        $installPath
+    ) $serverInstalledConfigName
+    if (Test-Path -LiteralPath $componentConfigPath -PathType Leaf) {
+        $ConfigPath = $componentConfigPath
+    }
+    else {
+        $ConfigPath = Join-Path $installPath "ril_config.json"
+    }
 }
 $configPath = [IO.Path]::GetFullPath($ConfigPath)
+$env:RIL_CONFIG_PATH = $configPath
 $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 |
     ConvertFrom-Json
 $previousConfig = $config
@@ -36,6 +46,24 @@ function Test-SamePath {
     )
 }
 
+function Get-InstalledServerConfigPath {
+    $componentConfigPath = Join-Path (
+        $installPath
+    ) $serverInstalledConfigName
+    if (Test-Path -LiteralPath $componentConfigPath -PathType Leaf) {
+        return $componentConfigPath
+    }
+    return Join-Path $installPath "ril_config.json"
+}
+
+function Start-InstalledServer {
+    param([Parameter(Mandatory = $true)][string]$ServerPath)
+
+    $env:RIL_CONFIG_PATH = Get-InstalledServerConfigPath
+    Start-Process -FilePath $ServerPath `
+        -WorkingDirectory $installPath
+}
+
 function Get-ManagedServerFileNames {
     param([Parameter(Mandatory = $true)][object[]]$Configs)
 
@@ -53,7 +81,7 @@ function Get-ManagedServerFileNames {
             [string]$installation.server_restarter_power_shell_script
             [string]$installation.server_update_helper_script
             [string]$installation.icon_file
-            "ril_config.json"
+            $serverInstalledConfigName
         )
     }
     return @($names | Sort-Object -Unique)
@@ -526,7 +554,13 @@ if (Test-Path -LiteralPath $statePath) {
             $backupServer = Join-Path $backupPath (
                 [string]$previousConfig.installation.server_executable
             )
-            $backupConfig = Join-Path $backupPath "ril_config.json"
+            $backupConfig = Join-Path (
+                $backupPath
+            ) $serverInstalledConfigName
+            $backupLegacyConfig = Join-Path $backupPath "ril_config.json"
+            $installedLegacyConfig = Join-Path (
+                $installPath
+            ) "ril_config.json"
             $allowedBackupPrefixes = @($updatesRootPrefix)
             foreach ($descriptorConfig in @(
                 $previousConfig
@@ -564,7 +598,19 @@ if (Test-Path -LiteralPath $statePath) {
             if (
                 -not $backupIsAllowed -or
                 -not (Test-Path -LiteralPath $backupServer -PathType Leaf) -or
-                -not (Test-Path -LiteralPath $backupConfig -PathType Leaf)
+                (
+                    -not (
+                        Test-Path -LiteralPath $backupConfig -PathType Leaf
+                    ) -and
+                    -not (
+                        Test-Path -LiteralPath $backupLegacyConfig `
+                            -PathType Leaf
+                    ) -and
+                    -not (
+                        Test-Path -LiteralPath $installedLegacyConfig `
+                            -PathType Leaf
+                    )
+                )
             ) {
                 # 부분 설치 파일을 실행하지 않도록 상태를 그대로 둔다.
                 exit 2
@@ -615,7 +661,8 @@ if (Test-Path -LiteralPath $statePath) {
                         ) -Force
                 }
 
-            $configPath = Join-Path $installPath "ril_config.json"
+            $configPath = Get-InstalledServerConfigPath
+            $env:RIL_CONFIG_PATH = $configPath
             $config = Get-Content -LiteralPath $configPath -Raw `
                 -Encoding UTF8 |
                 ConvertFrom-Json
@@ -709,8 +756,7 @@ try {
                     -ErrorAction SilentlyContinue
             }
         Start-Sleep -Milliseconds 500
-        Start-Process -FilePath $serverPath `
-            -WorkingDirectory $installPath
+        Start-InstalledServer -ServerPath $serverPath
         Complete-RecoveryIfNeeded
         exit 0
     }
@@ -722,8 +768,7 @@ try {
                     -ErrorAction SilentlyContinue
             }
         Start-Sleep -Milliseconds 500
-        Start-Process -FilePath $serverPath `
-            -WorkingDirectory $installPath
+        Start-InstalledServer -ServerPath $serverPath
         Complete-RecoveryIfNeeded
         exit 0
     }
@@ -760,8 +805,7 @@ catch {
     if ($null -ne $recoveryState) {
         throw
     }
-    Start-Process -FilePath $serverPath `
-        -WorkingDirectory $installPath
+    Start-InstalledServer -ServerPath $serverPath
 }
 }
 finally {

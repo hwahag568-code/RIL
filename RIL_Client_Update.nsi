@@ -74,6 +74,7 @@
 !define CLIENT_UPDATE_RECOVERY_INSTALLER "recover_update.exe"
 !define CLIENT_UPDATE_RECOVERY_COMMAND "recover_update.cmd"
 !define CLIENT_UPDATE_MIGRATION_DESCRIPTOR "migration.ini"
+!define CLIENT_INSTALLED_CONFIG_FILENAME "ril-client-installed.json"
 ; 이 표준 uninstall anchor는 bootstrap 설정 자체가 바뀌어도 기존
 ; custom 설치 경로를 찾기 위한 고정 product identity다.
 !define RIL_BOOTSTRAP_REGISTRY_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\RIL"
@@ -111,6 +112,7 @@ Var TargetClientStartupReadyFilename
 Var TargetRegistryKey
 Var TargetClientInstallRegistryValue
 Var TargetLegacyInstallRegistryValue
+Var InstalledClientConfigPath
 
 Function .onInit
     StrCpy $RecoveryMode "0"
@@ -122,7 +124,7 @@ Function .onInit
 recovery_mode_done:
     System::Call 'kernel32::SetLastError(i 0)'
     ; 서버 installer/helper와 같은 배포 mutex를 실제 소유해
-    ; 공용 ril_config.json 교체를 직렬화한다.
+    ; 공용 설치 폴더의 payload 거래를 직렬화한다.
     System::Call 'kernel32::CreateMutexW(p 0, i 1, w "${UPDATE_MUTEX_NAME}") p .r7 ?e'
     Pop $8
     StrCmp $7 "0" client_mutex_failed
@@ -196,7 +198,8 @@ client_install_dir_resolved:
     StrCpy $ClientMigrationDescriptor "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\${CLIENT_UPDATE_MIGRATION_DESCRIPTOR}"
 
 client_migration_descriptor_selected:
-    nsExec::ExecToLog '"${POWER_SHELL_EXECUTABLE}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\RIL_install_prepare.ps1" -Component client -InstallDir "$0" -ConfigPath "$PLUGINSDIR\ril_config.json" -InstalledConfigPath "$0\${CONFIG_FILE}" -DescriptorPath "$ClientMigrationDescriptor"'
+    Call SelectInstalledClientConfigPath
+    nsExec::ExecToLog '"${POWER_SHELL_EXECUTABLE}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\RIL_install_prepare.ps1" -Component client -InstallDir "$0" -ConfigPath "$PLUGINSDIR\ril_config.json" -InstalledConfigPath "$InstalledClientConfigPath" -DescriptorPath "$ClientMigrationDescriptor"'
     Pop $1
     StrCmp $1 "0" client_load_migration_descriptor client_prepare_failed
 
@@ -223,7 +226,8 @@ client_refresh_migration_descriptor:
     ; 복구된 OLD 설정과 이번 payload의 NEW 설정으로 새 설명자를 만든다.
     StrCpy $ClientMigrationDescriptor "$PLUGINSDIR\${CLIENT_UPDATE_MIGRATION_DESCRIPTOR}"
     Delete "$ClientMigrationDescriptor"
-    nsExec::ExecToLog '"${POWER_SHELL_EXECUTABLE}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\RIL_install_prepare.ps1" -Component client -InstallDir "$0" -ConfigPath "$PLUGINSDIR\ril_config.json" -InstalledConfigPath "$0\${CONFIG_FILE}" -DescriptorPath "$ClientMigrationDescriptor"'
+    Call SelectInstalledClientConfigPath
+    nsExec::ExecToLog '"${POWER_SHELL_EXECUTABLE}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\RIL_install_prepare.ps1" -Component client -InstallDir "$0" -ConfigPath "$PLUGINSDIR\ril_config.json" -InstalledConfigPath "$InstalledClientConfigPath" -DescriptorPath "$ClientMigrationDescriptor"'
     Pop $1
     StrCmp $1 "0" client_reload_migration_descriptor client_prepare_failed
 
@@ -282,13 +286,13 @@ client_recovery_done:
     ClearErrors
     File /r "${CLIENT_BUILD_DIRECTORY}\*.*"
     File "${CLIENT_UI_FILE}"
-    File "${CONFIG_FILE}"
+    File /oname=${CLIENT_INSTALLED_CONFIG_FILENAME} "${CONFIG_FILE}"
     IfErrors client_stage_failed
 
     IfFileExists "$0\${CLIENT_UPDATE_STAGE_DIRECTORY}\${CLIENT_EXECUTABLE}" 0 client_stage_failed
     IfFileExists "$0\${CLIENT_UPDATE_STAGE_DIRECTORY}\${CLIENT_RUNTIME_DIRECTORY}\*.*" 0 client_stage_failed
     IfFileExists "$0\${CLIENT_UPDATE_STAGE_DIRECTORY}\${CLIENT_UI_FILE}" 0 client_stage_failed
-    IfFileExists "$0\${CLIENT_UPDATE_STAGE_DIRECTORY}\${CONFIG_FILE}" 0 client_stage_failed
+    IfFileExists "$0\${CLIENT_UPDATE_STAGE_DIRECTORY}\${CLIENT_INSTALLED_CONFIG_FILENAME}" 0 client_stage_failed
 
     Call PrepareClientRecovery
     StrCmp $3 "0" client_recovery_task_ready client_stage_failed
@@ -382,22 +386,22 @@ client_backup_ui:
     StrCmp "$OldClientUiFile" "${CLIENT_UI_FILE}" client_backup_current_ui client_backup_old_ui
 
 client_backup_old_ui:
-    IfFileExists "$0\$OldClientUiFile" 0 client_backup_config
+    IfFileExists "$0\$OldClientUiFile" 0 client_backup_component_config
     ClearErrors
     Rename "$0\$OldClientUiFile" "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\$OldClientUiFile"
     IfErrors client_transaction_failed
-    Goto client_backup_config
+    Goto client_backup_component_config
 
 client_backup_current_ui:
-    IfFileExists "$0\${CLIENT_UI_FILE}" 0 client_backup_config
+    IfFileExists "$0\${CLIENT_UI_FILE}" 0 client_backup_component_config
     ClearErrors
     Rename "$0\${CLIENT_UI_FILE}" "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\${CLIENT_UI_FILE}"
     IfErrors client_transaction_failed
 
-client_backup_config:
-    IfFileExists "$0\${CONFIG_FILE}" 0 client_mark_backup_complete
+client_backup_component_config:
+    IfFileExists "$0\${CLIENT_INSTALLED_CONFIG_FILENAME}" 0 client_mark_backup_complete
     ClearErrors
-    Rename "$0\${CONFIG_FILE}" "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\${CONFIG_FILE}"
+    Rename "$0\${CLIENT_INSTALLED_CONFIG_FILENAME}" "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\${CLIENT_INSTALLED_CONFIG_FILENAME}"
     IfErrors client_transaction_failed
 
 client_mark_backup_complete:
@@ -422,7 +426,7 @@ client_install_staged_runtime:
     IfErrors client_transaction_failed
     Rename "$0\${CLIENT_UPDATE_STAGE_DIRECTORY}\${CLIENT_UI_FILE}" "$0\${CLIENT_UI_FILE}"
     IfErrors client_transaction_failed
-    Rename "$0\${CLIENT_UPDATE_STAGE_DIRECTORY}\${CONFIG_FILE}" "$0\${CONFIG_FILE}"
+    Rename "$0\${CLIENT_UPDATE_STAGE_DIRECTORY}\${CLIENT_INSTALLED_CONFIG_FILENAME}" "$0\${CLIENT_INSTALLED_CONFIG_FILENAME}"
     IfErrors client_transaction_failed
 
     ClearErrors
@@ -478,7 +482,7 @@ client_commit_marker_write_failed:
     Goto client_startup_failed
 
 client_startup_failed:
-    nsExec::ExecToLog '"${POWER_SHELL_EXECUTABLE}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\RIL_install_prepare.ps1" -Component client -InstallDir "$0" -ConfigPath "$PLUGINSDIR\ril_config.json" -InstalledConfigPath "$0\${CONFIG_FILE}" -DescriptorPath "$ClientMigrationDescriptor"'
+    nsExec::ExecToLog '"${POWER_SHELL_EXECUTABLE}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\RIL_install_prepare.ps1" -Component client -InstallDir "$0" -ConfigPath "$PLUGINSDIR\ril_config.json" -InstalledConfigPath "$InstalledClientConfigPath" -DescriptorPath "$ClientMigrationDescriptor"'
     Pop $4
     Sleep 500
     Delete "$0\${CLIENT_STARTUP_READY_FILENAME}"
@@ -537,6 +541,14 @@ client_transaction_rolled_back_silent:
 
 client_done:
 SectionEnd
+
+Function SelectInstalledClientConfigPath
+    StrCpy $InstalledClientConfigPath "$0\${CLIENT_INSTALLED_CONFIG_FILENAME}"
+    IfFileExists "$InstalledClientConfigPath" select_installed_client_config_done
+    StrCpy $InstalledClientConfigPath "$0\${CONFIG_FILE}"
+
+select_installed_client_config_done:
+FunctionEnd
 
 Function LoadClientMigrationDescriptor
     StrCpy $DescriptorLoadStatus "1"
@@ -828,22 +840,22 @@ recovery_remove_target_ui:
     StrCmp "$TargetClientUiFile" "${CLIENT_UI_FILE}" recovery_remove_current_ui recovery_remove_descriptor_ui
 
 recovery_remove_descriptor_ui:
-    IfFileExists "$0\$TargetClientUiFile" 0 recovery_remove_config
+    IfFileExists "$0\$TargetClientUiFile" 0 recovery_remove_component_config
     ClearErrors
     Delete "$0\$TargetClientUiFile"
     IfErrors recovery_failed
-    Goto recovery_remove_config
+    Goto recovery_remove_component_config
 
 recovery_remove_current_ui:
-    IfFileExists "$0\${CLIENT_UI_FILE}" 0 recovery_remove_config
+    IfFileExists "$0\${CLIENT_UI_FILE}" 0 recovery_remove_component_config
     ClearErrors
     Delete "$0\${CLIENT_UI_FILE}"
     IfErrors recovery_failed
 
-recovery_remove_config:
-    IfFileExists "$0\${CONFIG_FILE}" 0 recovery_restore_executable
+recovery_remove_component_config:
+    IfFileExists "$0\${CLIENT_INSTALLED_CONFIG_FILENAME}" 0 recovery_restore_executable
     ClearErrors
-    Delete "$0\${CONFIG_FILE}"
+    Delete "$0\${CLIENT_INSTALLED_CONFIG_FILENAME}"
     IfErrors recovery_failed
 
 recovery_restore_executable:
@@ -898,20 +910,36 @@ recovery_restore_ui:
     StrCmp "$OldClientUiFile" "${CLIENT_UI_FILE}" recovery_restore_current_ui recovery_restore_old_ui
 
 recovery_restore_old_ui:
-    IfFileExists "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\$OldClientUiFile" 0 recovery_restore_config
+    IfFileExists "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\$OldClientUiFile" 0 recovery_restore_component_config
     ClearErrors
     Rename "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\$OldClientUiFile" "$0\$OldClientUiFile"
     IfErrors recovery_failed
-    Goto recovery_restore_config
+    Goto recovery_restore_component_config
 
 recovery_restore_current_ui:
-    IfFileExists "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\${CLIENT_UI_FILE}" 0 recovery_restore_config
+    IfFileExists "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\${CLIENT_UI_FILE}" 0 recovery_restore_component_config
     ClearErrors
     Rename "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\${CLIENT_UI_FILE}" "$0\${CLIENT_UI_FILE}"
     IfErrors recovery_failed
 
-recovery_restore_config:
+recovery_restore_component_config:
+    IfFileExists "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\${CLIENT_INSTALLED_CONFIG_FILENAME}" 0 recovery_restore_legacy_config
+    ClearErrors
+    Rename "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\${CLIENT_INSTALLED_CONFIG_FILENAME}" "$0\${CLIENT_INSTALLED_CONFIG_FILENAME}"
+    IfErrors recovery_failed
+
+recovery_restore_legacy_config:
+    ; 이전 updater가 중단되며 공용 config를 백업한 경우에만 복원한다.
+    ; 새 거래는 공용 config를 건드리지 않아 아직 전환 전인 상대편을 보호한다.
     IfFileExists "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\${CONFIG_FILE}" 0 recovery_commit_restore
+    IfFileExists "$0\${CONFIG_FILE}" recovery_delete_legacy_config recovery_restore_legacy_config_file
+
+recovery_delete_legacy_config:
+    ClearErrors
+    Delete "$0\${CONFIG_FILE}"
+    IfErrors recovery_failed
+
+recovery_restore_legacy_config_file:
     ClearErrors
     Rename "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}\${CONFIG_FILE}" "$0\${CONFIG_FILE}"
     IfErrors recovery_failed

@@ -2,14 +2,18 @@
 
 ## 파일 역할
 
-- `ril_config.json`: 배포에 포함되는 기준 설정과 통합 버전
+- `ril_config.json`: 빌드·배포에 사용하는 기준 설정과 통합 버전
+- `ril-client-installed.json`: 설치된 클라이언트가 사용하는 기준 설정
+- `ril-server-installed.json`: 설치된 서버가 사용하는 기준 설정
 - `ril_config.local.json`: PC별 차이만 기록하는 선택 파일
 - `ril_config.local.example.json`: 로컬 override 예제
 
-설치 프로그램은 새 버전의 `ril_config.json`을 설치하지만 기존
-`ril_config.local.json`은 덮어쓰지 않는다. 실행 시 두 파일을 깊게
-병합하며 알 수 없는 키, 잘못된 타입, 누락 경로·시간값은 시작 단계에서
-명확한 설정 오류로 차단한다.
+각 설치 프로그램은 자기 구성요소의 `*-installed.json`만
+트랜잭션으로 교체하며 상대 구성요소 설정과 기존
+`ril_config.local.json`은 덮어쓰지 않는다. 구성요소 전용 파일이 없는
+구형 설치본만 공용 `ril_config.json`을 fallback으로 읽는다. 실행 시
+선택된 기준 파일과 로컬 설정을 깊게 병합하며 알 수 없는 키, 잘못된
+타입, 누락 경로·시간값은 시작 단계에서 명확한 설정 오류로 차단한다.
 
 테스트나 복구 작업에서는 환경변수로 기준 파일을 바꿀 수 있다.
 
@@ -112,6 +116,7 @@ AU의 오더·결과, OSMO 1·2, Nova 1·2처럼 한 PC에 인터페이스가 �
 ## 의도적인 bootstrap 예외
 
 설정 파일을 찾기 전에는 설정 자체를 읽을 수 없으므로
+`ril-client-installed.json`, `ril-server-installed.json`,
 `ril_config.json`, `ril_config.local.json`이라는 파일명과 실행파일
 옆을 먼저 확인하는 규칙은 코드에 고정되어 있다. 또한 진단·SQLite
 복구 스크립트의 검증 hash와 안전 복구 대상은 일반 운영 설정으로

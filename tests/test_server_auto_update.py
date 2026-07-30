@@ -481,6 +481,392 @@ class ServerUpdateTests(unittest.TestCase):
             ["draining", "draining_complete"],
         )
 
+    def test_server_death_during_drain_advances_verified_update(self):
+        tray = FakeProcess()
+        server = FakeProcess()
+        wakeup = FakeProcess()
+        ready = queue.Queue()
+        ready.put(
+            {
+                "version": "260728.3",
+                "installer_path": "server.exe",
+            }
+        )
+        drain_requested = threading.Event()
+        drain_complete = threading.Event()
+        launcher = mock.Mock()
+        restart = mock.Mock()
+
+        def crash_server(_interval):
+            server.alive = False
+
+        with (
+            mock.patch.object(
+                RIL_server.time,
+                "sleep",
+                side_effect=crash_server,
+            ),
+            mock.patch.object(RIL_server, "ErrorLog") as error_log,
+            mock.patch.object(
+                RIL_server,
+                "write_server_update_state",
+            ) as write_state,
+        ):
+            action = RIL_server.run_supervised_processes(
+                tray,
+                server,
+                wakeup,
+                restart,
+                update_queue=ready,
+                update_launcher=launcher,
+                drain_requested_event=drain_requested,
+                drain_complete_event=drain_complete,
+            )
+
+        self.assertEqual(action, "update")
+        self.assertTrue(drain_requested.is_set())
+        self.assertFalse(drain_complete.is_set())
+        restart.assert_not_called()
+        launcher.assert_called_once()
+        self.assertEqual(
+            [call.args[0] for call in write_state.call_args_list],
+            ["draining", "draining_complete"],
+        )
+        self.assertEqual(
+            write_state.call_args_list[-1].kwargs["drain_reason"],
+            "listener_dead",
+        )
+        self.assertTrue(
+            any(
+                "reason=listener_dead" in str(call.args[0])
+                for call in error_log.call_args_list
+            )
+        )
+
+    def test_listener_exception_does_not_acknowledge_clean_drain(self):
+        drain_complete = threading.Event()
+
+        with (
+            mock.patch.object(
+                RIL_server.mynetlib,
+                "run_server",
+                side_effect=OSError("listener failed"),
+            ),
+            self.assertRaisesRegex(OSError, "listener failed"),
+        ):
+            RIL_server.run_server2(
+                drain_complete_event=drain_complete,
+            )
+
+        self.assertFalse(drain_complete.is_set())
+
+    def test_requested_stop_after_durable_drain_records_nonblocking_cancel(
+        self,
+    ):
+        tray = FakeProcess()
+        server = FakeProcess()
+        wakeup = FakeProcess()
+        ready = queue.Queue()
+        ready.put(
+            {
+                "version": "260728.3",
+                "installer_path": "server.exe",
+            }
+        )
+        requested_stop = mock.Mock()
+        requested_stop.is_set.side_effect = [False, True]
+        drain_requested = threading.Event()
+        drain_complete = threading.Event()
+        launcher = mock.Mock()
+        restart = mock.Mock()
+        lifecycle = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            real_write = RIL_server.write_server_update_state
+            real_stop = RIL_server._stop_processes
+
+            def write_state(*args, **kwargs):
+                lifecycle.append(f"state:{args[0]}")
+                return real_write(*args, **kwargs)
+
+            def stop_processes(*args, **kwargs):
+                lifecycle.append("processes_stopped")
+                return real_stop(*args, **kwargs)
+
+            with (
+                mock.patch.object(
+                    RIL_server,
+                    "server_update_state_path",
+                    return_value=state_path,
+                ),
+                mock.patch.object(
+                    RIL_server,
+                    "write_server_update_state",
+                    side_effect=write_state,
+                ),
+                mock.patch.object(
+                    RIL_server,
+                    "_stop_processes",
+                    side_effect=stop_processes,
+                ),
+                mock.patch.object(RIL_server.time, "sleep"),
+                mock.patch.object(RIL_server, "ErrorLog"),
+            ):
+                action = RIL_server.run_supervised_processes(
+                    tray,
+                    server,
+                    wakeup,
+                    restart,
+                    requested_stop=requested_stop,
+                    update_queue=ready,
+                    update_launcher=launcher,
+                    drain_requested_event=drain_requested,
+                    drain_complete_event=drain_complete,
+                )
+                blocks_start = (
+                    RIL_server.update_state_blocks_this_server_start()
+                )
+
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(action, "stop")
+        self.assertEqual(state["state"], "cancelled")
+        self.assertFalse(blocks_start)
+        self.assertEqual(
+            lifecycle,
+            [
+                "state:draining",
+                "processes_stopped",
+                "state:cancelled",
+            ],
+        )
+        launcher.assert_not_called()
+        restart.assert_not_called()
+
+    def test_cancel_write_failure_removes_stale_draining_state(self):
+        tray = FakeProcess()
+        server = FakeProcess()
+        wakeup = FakeProcess()
+        ready = queue.Queue()
+        ready.put(
+            {
+                "version": "260728.3",
+                "installer_path": "server.exe",
+            }
+        )
+        requested_stop = mock.Mock()
+        requested_stop.is_set.side_effect = [False, True]
+        drain_requested = threading.Event()
+        drain_complete = threading.Event()
+
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            real_write = RIL_server.write_server_update_state
+
+            def write_state(state, **details):
+                if state == "cancelled":
+                    raise OSError("cancel write failed")
+                return real_write(state, **details)
+
+            with (
+                mock.patch.object(
+                    RIL_server,
+                    "server_update_state_path",
+                    return_value=state_path,
+                ),
+                mock.patch.object(
+                    RIL_server,
+                    "write_server_update_state",
+                    side_effect=write_state,
+                ),
+                mock.patch.object(RIL_server.time, "sleep"),
+                mock.patch.object(RIL_server, "ErrorLog"),
+            ):
+                action = RIL_server.run_supervised_processes(
+                    tray,
+                    server,
+                    wakeup,
+                    mock.Mock(),
+                    requested_stop=requested_stop,
+                    update_queue=ready,
+                    update_launcher=mock.Mock(),
+                    drain_requested_event=drain_requested,
+                    drain_complete_event=drain_complete,
+                )
+
+            self.assertFalse(state_path.exists())
+
+        self.assertEqual(action, "stop")
+
+    def test_failed_worker_stop_keeps_durable_draining_state(self):
+        tray = FakeProcess()
+        server = FakeProcess()
+        wakeup = FakeProcess()
+        ready = queue.Queue()
+        ready.put(
+            {
+                "version": "260728.3",
+                "installer_path": "server.exe",
+            }
+        )
+        requested_stop = mock.Mock()
+        requested_stop.is_set.side_effect = [False, True]
+        drain_requested = threading.Event()
+        drain_complete = threading.Event()
+
+        with tempfile.TemporaryDirectory() as directory:
+            state_path = Path(directory) / "state.json"
+            with (
+                mock.patch.object(
+                    RIL_server,
+                    "server_update_state_path",
+                    return_value=state_path,
+                ),
+                mock.patch.object(
+                    RIL_server,
+                    "_stop_processes",
+                    side_effect=RuntimeError("worker still alive"),
+                ),
+                mock.patch.object(RIL_server.time, "sleep"),
+                mock.patch.object(RIL_server, "ErrorLog"),
+                self.assertRaisesRegex(
+                    RuntimeError,
+                    "worker still alive",
+                ),
+            ):
+                RIL_server.run_supervised_processes(
+                    tray,
+                    server,
+                    wakeup,
+                    mock.Mock(),
+                    requested_stop=requested_stop,
+                    update_queue=ready,
+                    update_launcher=mock.Mock(),
+                    drain_requested_event=drain_requested,
+                    drain_complete_event=drain_complete,
+                )
+
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(state["state"], "draining")
+
+    def test_sibling_watchdog_failures_do_not_restart_durable_drain(self):
+        tray = FakeProcess()
+        tray.alive = False
+        server = FakeProcess()
+        wakeup = FakeProcess()
+        wakeup.alive = False
+        ready = queue.Queue()
+        ready.put(
+            {
+                "version": "260728.3",
+                "installer_path": "server.exe",
+            }
+        )
+        drain_requested = threading.Event()
+        drain_complete = threading.Event()
+        launcher = mock.Mock()
+        restart = mock.Mock()
+        tray_factory = mock.Mock(side_effect=OSError("tray failed"))
+        wakeup_factory = mock.Mock(side_effect=OSError("wakeup failed"))
+
+        def complete_drain(_interval):
+            drain_complete.set()
+
+        with (
+            mock.patch.object(
+                RIL_server.time,
+                "sleep",
+                side_effect=complete_drain,
+            ),
+            mock.patch.object(RIL_server, "ErrorLog"),
+            mock.patch.object(
+                RIL_server,
+                "write_server_update_state",
+            ),
+        ):
+            action = RIL_server.run_supervised_processes(
+                tray,
+                server,
+                wakeup,
+                restart,
+                update_queue=ready,
+                update_launcher=launcher,
+                drain_requested_event=drain_requested,
+                drain_complete_event=drain_complete,
+                tray_factory=tray_factory,
+                wakeup_factory=wakeup_factory,
+            )
+
+        self.assertEqual(action, "update")
+        launcher.assert_called_once()
+        restart.assert_not_called()
+        tray_factory.assert_not_called()
+        wakeup_factory.assert_not_called()
+
+    def test_update_is_blocked_if_exact_ial_worker_cannot_be_stopped(self):
+        tray = FakeProcess()
+        server = FakeProcess()
+        server.pid = 2468
+        server.alive = False
+        wakeup = FakeProcess()
+        ready = queue.Queue()
+        ready.put(
+            {
+                "version": "260728.3",
+                "installer_path": "server.exe",
+            }
+        )
+        drain_requested = threading.Event()
+        drain_complete = threading.Event()
+        launcher = mock.Mock()
+        restart = mock.Mock()
+        worker_control = RIL_server._IalWorkerControl()
+        worker_control.idle_event.clear()
+        RIL_server._publish_ial_worker_identity(
+            worker_control,
+            pid=4321,
+            create_time=123.5,
+            owner_pid=server.pid,
+        )
+        ial_worker = mock.Mock()
+        ial_worker.create_time.return_value = 123.5
+        ial_worker.ppid.return_value = server.pid
+        ial_worker.wait.side_effect = RIL_server.psutil.TimeoutExpired(
+            5,
+            pid=4321,
+        )
+
+        with (
+            mock.patch.object(RIL_server, "ErrorLog"),
+            mock.patch.object(
+                RIL_server.psutil,
+                "Process",
+                return_value=ial_worker,
+            ),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "IAL 작업 프로세스를 종료하지 못했습니다",
+            ),
+        ):
+            RIL_server.run_supervised_processes(
+                tray,
+                server,
+                wakeup,
+                restart,
+                update_queue=ready,
+                update_launcher=launcher,
+                drain_requested_event=drain_requested,
+                drain_complete_event=drain_complete,
+                ial_worker_control=worker_control,
+            )
+
+        ial_worker.terminate.assert_called_once_with()
+        ial_worker.kill.assert_called_once_with()
+        launcher.assert_not_called()
+        restart.assert_not_called()
+
     def test_launcher_failure_records_failed_state_before_restart(self):
         tray = FakeProcess()
         server = FakeProcess()
@@ -699,7 +1085,7 @@ class ServerUpdateTests(unittest.TestCase):
             '-State "rollback_starting_previous"'
         )
         restarter_previous_start = restarter.index(
-            "Start-Process -FilePath $serverPath",
+            "Start-InstalledServer -ServerPath $serverPath",
             restarter_rollback_state,
         )
         self.assertLess(
@@ -723,7 +1109,7 @@ class ServerUpdateTests(unittest.TestCase):
             no_backup_recovery,
         )
         no_backup_previous_start = restarter.index(
-            "Start-Process -FilePath $serverPath",
+            "Start-InstalledServer -ServerPath $serverPath",
             no_backup_recovery,
         )
         self.assertLess(
@@ -750,7 +1136,7 @@ class ServerUpdateTests(unittest.TestCase):
             stale_running_recovery,
         )
         stale_running_start = restarter.index(
-            "Start-Process -FilePath $serverPath",
+            "Start-InstalledServer -ServerPath $serverPath",
             stale_running_stop,
         )
         stale_running_health = restarter.index(

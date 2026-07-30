@@ -1,17 +1,21 @@
 #아직 통신불량이라고 나옴
 
+import os
 import sys, socket, time
 import json
 from pathlib import Path
 from PyQt5.QtWidgets import *
 from PyQt5 import uic
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from ril_config import select_component_config
+
+select_component_config("client")
+
 import client
 import traceback
 import requests
 import psutil
 import subprocess
-import os
 import tempfile
 from ril_config import expand_path, load_config, resource_path
 from ril_devices import (

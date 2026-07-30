@@ -25,6 +25,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$serverInstalledConfigName = "ril-server-installed.json"
 $previousConfig = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 |
     ConvertFrom-Json
 $targetConfig = $previousConfig
@@ -131,7 +132,7 @@ try {
                 [string]$installation.server_restarter_power_shell_script
                 [string]$installation.server_update_helper_script
                 [string]$installation.icon_file
-                "ril_config.json"
+                $serverInstalledConfigName
             )
         }
         return @($names | Sort-Object -Unique)
@@ -149,6 +150,18 @@ try {
             }
         }
         return @($names | Sort-Object -Unique)
+    }
+
+    function Get-InstalledServerConfigPath {
+        $componentConfigPath = Join-Path (
+            [IO.Path]::GetFullPath($installPath)
+        ) $serverInstalledConfigName
+        if (Test-Path -LiteralPath $componentConfigPath -PathType Leaf) {
+            return $componentConfigPath
+        }
+        return Join-Path (
+            [IO.Path]::GetFullPath($installPath)
+        ) "ril_config.json"
     }
 
     function Get-ManagedTaskNames {
@@ -462,7 +475,7 @@ try {
                 $config.installation.server_update_helper_script
             ),
             [string]$config.installation.icon_file,
-            "ril_config.json"
+            $serverInstalledConfigName
         )
         foreach ($fileName in $fileNames) {
             $source = Join-Path $installPath $fileName
@@ -493,11 +506,20 @@ try {
             [string]$config.installation.server_executable
         )
         $requiredConfig = Join-Path $backupCreatingDirectory (
-            "ril_config.json"
+            $serverInstalledConfigName
         )
+        $legacyInstalledConfig = Join-Path $installPath "ril_config.json"
         if (
             -not (Test-Path -LiteralPath $requiredServer -PathType Leaf) -or
-            -not (Test-Path -LiteralPath $requiredConfig -PathType Leaf)
+            (
+                -not (
+                    Test-Path -LiteralPath $requiredConfig -PathType Leaf
+                ) -and
+                -not (
+                    Test-Path -LiteralPath $legacyInstalledConfig `
+                        -PathType Leaf
+                )
+            )
         ) {
             throw "복구에 필요한 기존 서버 파일을 백업하지 못했습니다."
         }
@@ -704,8 +726,23 @@ try {
             $serverPath = Join-Path $installPath (
                 [string]$previousConfig.installation.server_executable
             )
-            Start-Process -FilePath $serverPath `
-                -WorkingDirectory $installPath
+            $selectedConfigPath = Get-InstalledServerConfigPath
+            $hadConfigEnvironment = Test-Path Env:RIL_CONFIG_PATH
+            $previousConfigEnvironment = $env:RIL_CONFIG_PATH
+            try {
+                $env:RIL_CONFIG_PATH = $selectedConfigPath
+                Start-Process -FilePath $serverPath `
+                    -WorkingDirectory $installPath
+            }
+            finally {
+                if ($hadConfigEnvironment) {
+                    $env:RIL_CONFIG_PATH = $previousConfigEnvironment
+                }
+                else {
+                    Remove-Item Env:RIL_CONFIG_PATH `
+                        -ErrorAction SilentlyContinue
+                }
+            }
         }
     }
 
