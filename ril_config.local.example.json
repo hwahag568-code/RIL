@@ -1,0 +1,20 @@
+{
+  "logging": {
+    "directory": "D:\\RIL\\logs"
+  },
+  "interfaces": {
+    "au": {
+      "3": {
+        "order_directory": "C:\\Program Files (x86)\\LIS_Interface\\AU_3",
+        "result_directory": "C:\\Program Files (x86)\\LIS_Interface\\AU_3_RSLT"
+      }
+    }
+  },
+  "devices": {
+    "definitions": {
+      "AU3": {
+        "ip": "10.2.151.219"
+      }
+    }
+  }
+}

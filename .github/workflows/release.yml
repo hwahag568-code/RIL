@@ -1,0 +1,71 @@
+name: Build and publish RIL
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Build, upload, and activate the distribution release
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ril-production-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements-build.txt
+
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+
+      - name: Build client update and server installer
+        shell: pwsh
+        run: .\scripts\build_release.ps1
+
+      - name: Resolve artifact paths from JSON
+        id: release_paths
+        shell: pwsh
+        run: |
+          $config = Get-Content -LiteralPath ril_config.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          $version = [string]$config.release.version
+          $server = ([string]$config.artifacts.server_installer_filename_template).Replace("{version}", $version)
+          "client=release/$($config.artifacts.client_installer_filename)" >> $env:GITHUB_OUTPUT
+          "server=release/$server" >> $env:GITHUB_OUTPUT
+          "manifest=release/$($config.artifacts.manifest_filename)" >> $env:GITHUB_OUTPUT
+          "legacy=release/$($config.artifacts.legacy_version_filename)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ril-release
+          path: |
+            ${{ steps.release_paths.outputs.client }}
+            ${{ steps.release_paths.outputs.server }}
+            ${{ steps.release_paths.outputs.manifest }}
+            ${{ steps.release_paths.outputs.legacy }}
+          if-no-files-found: error
+
+      - name: Stage and activate GitHub release
+        if: ${{ inputs.publish }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.DISTRIBUTION_TOKEN }}
+        run: |
+          .\scripts\publish_release.ps1 -Phase Stage -ResumeStage
+          .\scripts\publish_release.ps1 -Phase Activate
