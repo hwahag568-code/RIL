@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -402,6 +403,45 @@ class PowerShellHostCompatibilityTests(unittest.TestCase):
             '\\${CLIENT_UPDATE_RECOVERY_COMMAND}\\"" /F',
             installer,
         )
+
+    @unittest.skipUnless(
+        sys.platform == "win32"
+        and shutil.which("cmd.exe")
+        and shutil.which("powershell.exe"),
+        "Windows cmd.exe와 powershell.exe가 필요합니다.",
+    )
+    def test_wrapper_scripts_pass_install_dir_without_trailing_quote(self):
+        wrappers = (
+            ("RIL_server_restarter.cmd", "RIL_server_restarter.ps1"),
+            ("RIL_server_start.bat", "RIL_server_start.ps1"),
+        )
+        probe = (
+            "param([string]$InstallDir, [string]$ConfigPath)\r\n"
+            "[Console]::Out.Write([IO.Path]::GetFullPath($InstallDir))\r\n"
+        )
+        for wrapper_name, script_name in wrappers:
+            with self.subTest(wrapper=wrapper_name):
+                with tempfile.TemporaryDirectory() as temporary:
+                    install = Path(temporary) / "RIL install"
+                    install.mkdir()
+                    wrapper = install / wrapper_name
+                    wrapper.write_bytes(
+                        (MAKE_SETUP / wrapper_name).read_bytes()
+                    )
+                    (install / script_name).write_bytes(
+                        probe.encode("ascii")
+                    )
+                    result = subprocess.run(
+                        f'cmd.exe /d /c ""{wrapper}""',
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(
+                        os.path.normcase(result.stdout.strip()),
+                        os.path.normcase(str(install)),
+                    )
 
 
 if __name__ == "__main__":
