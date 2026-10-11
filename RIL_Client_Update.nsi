@@ -727,7 +727,7 @@ recovery_installer_size_ok:
     IfErrors recovery_prepare_failed
 
     ClearErrors
-    nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Create /SC ONLOGON /TN "${CLIENT_RECOVERY_TASK_NAME}" /RL HIGHEST /TR "$0\${CLIENT_UPDATE_RECOVERY_DIRECTORY}\${CLIENT_UPDATE_RECOVERY_COMMAND}" /F'
+    nsExec::ExecToLog '"$SYSDIR\schtasks.exe" /Create /SC ONLOGON /TN "${CLIENT_RECOVERY_TASK_NAME}" /RL HIGHEST /TR "\"$0\${CLIENT_UPDATE_RECOVERY_DIRECTORY}\${CLIENT_UPDATE_RECOVERY_COMMAND}\"" /F'
     Pop $4
     IfErrors recovery_prepare_failed
     StrCmp $4 "0" recovery_cleanup_old_task recovery_prepare_failed

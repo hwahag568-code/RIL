@@ -53,6 +53,9 @@ $updateMutex = [Threading.Mutex]::new(
 $mutexWaitMilliseconds = [int](
     [double]$config.update.mutex_wait_seconds * 1000
 )
+$schTasksExecutable = Join-Path $env:SystemRoot "System32\schtasks.exe"
+$processQueryTimeoutSeconds = 15
+$script:processQueryFallbackActive = $false
 
 try {
     function Write-UpdateState {
@@ -113,6 +116,123 @@ try {
             [IO.Path]::GetFullPath($Right),
             [StringComparison]::OrdinalIgnoreCase
         )
+    }
+
+    function ConvertTo-ArgumentText {
+        param([Parameter(Mandatory = $true)][string]$Value)
+
+        # MS C 런타임 규칙으로 인수 하나를 큰따옴표로 감싼다. 큰따옴표 앞과
+        # 끝에 있는 백슬래시는 두 배로, 큰따옴표는 \" 로 바꾼다.
+        $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\"')
+        $escaped = [regex]::Replace($escaped, '(\\+)$', '$1$1')
+        return "`"$escaped`""
+    }
+
+    function Invoke-SchTasks {
+        param([Parameter(Mandatory = $true)][string]$ArgumentLine)
+
+        # Windows PowerShell 5.1은 네이티브 실행파일 인수 안의 큰따옴표를
+        # 그대로 전달하지 않으므로(PowerShell 7.3+와 다름) 명령줄을 직접
+        # 구성해 두 버전에서 같은 argv가 만들어지게 한다.
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $schTasksExecutable
+        $startInfo.Arguments = $ArgumentLine
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $process = [Diagnostics.Process]::Start($startInfo)
+        try {
+            $output = $process.StandardOutput.ReadToEnd()
+            $errorOutput = $process.StandardError.ReadToEnd()
+            $process.WaitForExit()
+            return [PSCustomObject]@{
+                exit_code = [int]$process.ExitCode
+                output = $output + $errorOutput
+            }
+        }
+        finally {
+            $process.Dispose()
+        }
+    }
+
+    function ConvertTo-ProcessRecord {
+        param([Parameter(Mandatory = $true)][object]$Process)
+
+        $path = $null
+        try {
+            $path = [string]$Process.Path
+        }
+        catch {
+            $path = $null
+        }
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            $path = $null
+            $name = [string]$Process.ProcessName + ".exe"
+        }
+        else {
+            $name = [IO.Path]::GetFileName($path)
+        }
+        # Get-Process에는 CommandLine과 ParentProcessId가 없으므로 $null로 둔다.
+        return [PSCustomObject]@{
+            ProcessId = [int]$Process.Id
+            Name = $name
+            ExecutablePath = $path
+            ParentProcessId = $null
+            CommandLine = $null
+        }
+    }
+
+    function Get-ProcessSnapshot {
+        # WMI가 응답하지 않아도 무한 대기하지 않도록 제한시간을 두고, 실패하면
+        # Get-Process로 대체한다. WMI 실패를 "실행 중인 프로세스 없음"으로
+        # 취급하지 않는다.
+        if (-not $script:processQueryFallbackActive) {
+            try {
+                return @(
+                    Get-CimInstance Win32_Process `
+                        -OperationTimeoutSec $processQueryTimeoutSeconds `
+                        -ErrorAction Stop
+                )
+            }
+            catch {
+                $script:processQueryFallbackActive = $true
+            }
+        }
+        return @(
+            Get-Process -ErrorAction SilentlyContinue |
+                ForEach-Object { ConvertTo-ProcessRecord -Process $_ }
+        )
+    }
+
+    function Get-ProcessById {
+        param([Parameter(Mandatory = $true)][int]$ProcessId)
+
+        if ($ProcessId -le 0) {
+            return $null
+        }
+        if (-not $script:processQueryFallbackActive) {
+            try {
+                $found = @(
+                    Get-CimInstance Win32_Process `
+                        -Filter "ProcessId = $ProcessId" `
+                        -OperationTimeoutSec $processQueryTimeoutSeconds `
+                        -ErrorAction Stop
+                )
+                if ($found.Count -eq 0) {
+                    return $null
+                }
+                return $found[0]
+            }
+            catch {
+                $script:processQueryFallbackActive = $true
+            }
+        }
+        $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+        if ($null -eq $process) {
+            return $null
+        }
+        return ConvertTo-ProcessRecord -Process $process
     }
 
     function Get-ManagedServerFileNames {
@@ -333,16 +453,24 @@ try {
             $Config.installation.server_restarter_interval_hours
         )
 
-        & "$env:SystemRoot\System32\schtasks.exe" /Create `
-            /SC ONLOGON /TN $serverTask /RL HIGHEST `
-            /TR "`"$startScript`"" /F | Out-Null
-        if ($LASTEXITCODE -ne 0) {
+        $result = Invoke-SchTasks -ArgumentLine (
+            "/Create /SC ONLOGON /TN " +
+            (ConvertTo-ArgumentText $serverTask) +
+            " /RL HIGHEST /TR " +
+            (ConvertTo-ArgumentText "`"$startScript`"") +
+            " /F"
+        )
+        if ($result.exit_code -ne 0) {
             throw "서버 자동실행 작업 복구 실패"
         }
-        & "$env:SystemRoot\System32\schtasks.exe" /Create `
-            /SC HOURLY /MO $hours /TN $restarterTask /RL HIGHEST `
-            /TR "`"$restarterScript`"" /F | Out-Null
-        if ($LASTEXITCODE -ne 0) {
+        $result = Invoke-SchTasks -ArgumentLine (
+            "/Create /SC HOURLY /MO $hours /TN " +
+            (ConvertTo-ArgumentText $restarterTask) +
+            " /RL HIGHEST /TR " +
+            (ConvertTo-ArgumentText "`"$restarterScript`"") +
+            " /F"
+        )
+        if ($result.exit_code -ne 0) {
             throw "서버 restarter 작업 복구 실패"
         }
     }
@@ -376,19 +504,31 @@ try {
             "-InstallDir `"$installPath`" " +
             "-ConfigPath `"$ConfigPath`""
         )
+        # schtasks /TR 값은 261자까지만 허용된다.
+        if ($recoveryCommand.Length -gt 261) {
+            throw "정전 복구 작업 명령이 schtasks /TR 제한(261자)을 넘습니다."
+        }
 
         # 설치 파일이 덮어써지는 중 전원이 꺼져도 staging의 독립
         # restarter와 config로 rollback에 진입할 수 있게 한다.
-        & "$env:SystemRoot\System32\schtasks.exe" /Create `
-            /SC ONLOGON /TN $serverTask /RL HIGHEST `
-            /TR $recoveryCommand /F | Out-Null
-        if ($LASTEXITCODE -ne 0) {
+        $result = Invoke-SchTasks -ArgumentLine (
+            "/Create /SC ONLOGON /TN " +
+            (ConvertTo-ArgumentText $serverTask) +
+            " /RL HIGHEST /TR " +
+            (ConvertTo-ArgumentText $recoveryCommand) +
+            " /F"
+        )
+        if ($result.exit_code -ne 0) {
             throw "서버 정전 복구 작업 준비 실패"
         }
-        & "$env:SystemRoot\System32\schtasks.exe" /Create `
-            /SC HOURLY /MO $hours /TN $restarterTask /RL HIGHEST `
-            /TR $recoveryCommand /F | Out-Null
-        if ($LASTEXITCODE -ne 0) {
+        $result = Invoke-SchTasks -ArgumentLine (
+            "/Create /SC HOURLY /MO $hours /TN " +
+            (ConvertTo-ArgumentText $restarterTask) +
+            " /RL HIGHEST /TR " +
+            (ConvertTo-ArgumentText $recoveryCommand) +
+            " /F"
+        )
+        if ($result.exit_code -ne 0) {
             throw "서버 restarter 정전 복구 작업 준비 실패"
         }
     }
@@ -414,7 +554,7 @@ try {
             }
         }
         return @(
-            Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Get-ProcessSnapshot |
                 Where-Object {
                     if (-not $_.ExecutablePath) {
                         return $false
@@ -587,12 +727,8 @@ try {
                     [string]$Config.installation.server_executable
                 ))
             )
-            $worker = Get-CimInstance Win32_Process `
-                -Filter "ProcessId = $([int]$health.pid)" `
-                -ErrorAction SilentlyContinue
-            $parent = Get-CimInstance Win32_Process `
-                -Filter "ProcessId = $([int]$health.parent_pid)" `
-                -ErrorAction SilentlyContinue
+            $worker = Get-ProcessById -ProcessId ([int]$health.pid)
+            $parent = Get-ProcessById -ProcessId ([int]$health.parent_pid)
             if (
                 -not $worker -or
                 -not $parent -or
@@ -602,7 +738,10 @@ try {
                     $serverPath -or
                 [IO.Path]::GetFullPath($parent.ExecutablePath) -ne
                     $serverPath -or
-                [int]$worker.ParentProcessId -ne [int]$health.parent_pid
+                (
+                    $null -ne $worker.ParentProcessId -and
+                    [int]$worker.ParentProcessId -ne [int]$health.parent_pid
+                )
             ) {
                 return $false
             }

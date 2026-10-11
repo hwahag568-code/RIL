@@ -5,7 +5,7 @@
 버전은 [`ril_config.json`](ril_config.json)의
 `release.version` 한 곳에서만 변경한다.
 
-현재 통합 릴리스: `260730`
+현재 통합 릴리스: `260730.1`
 
 - 첫 배포: `260728`
 - 같은 날 첫 핫픽스: `260728.1`
@@ -108,6 +108,10 @@ fallback으로 보존한다. 겹친 작업은 JSON에 정한 제한시간까지�
 서버 설치파일을 한 번 수동 설치해야 한다. 이후 릴리스부터는 서버도
 자동으로 업데이트된다.
 
+`260729.x`·`260730` 서버는 내장 업데이트 helper가 Windows PowerShell 5.1에서
+정전 복구 작업을 등록하지 못해 자동업데이트가 롤백되므로 `260730.1` 서버
+설치파일을 한 번 수동 설치해야 한다.
+
 ## GitHub 배포
 
 실제 배포에는 `hwahag568-code/RIL` 저장소에 `contents:write` 권한이
@@ -118,7 +122,7 @@ fallback으로 보존한다. 겹친 작업은 JSON에 정한 제한시간까지�
 ### 권장: 빌드부터 활성화까지 자동 실행
 
 ```powershell
-.\scripts\build_and_publish.ps1 -ExpectedVersion 260730
+.\scripts\build_and_publish.ps1 -ExpectedVersion 260730.1
 ```
 
 이 명령은 테스트와 서버·클라이언트 빌드, Stage 업로드, 원격 SHA-256
