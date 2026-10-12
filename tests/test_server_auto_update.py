@@ -841,6 +841,10 @@ class ServerUpdateTests(unittest.TestCase):
         with (
             mock.patch.object(RIL_server, "ErrorLog"),
             mock.patch.object(
+                RIL_server,
+                "write_server_update_state",
+            ) as write_state,
+            mock.patch.object(
                 RIL_server.psutil,
                 "Process",
                 return_value=ial_worker,
@@ -864,6 +868,11 @@ class ServerUpdateTests(unittest.TestCase):
 
         ial_worker.terminate.assert_called_once_with()
         ial_worker.kill.assert_called_once_with()
+        write_state.assert_called_once_with(
+            "draining",
+            target_version="260728.3",
+            installer_path="server.exe",
+        )
         launcher.assert_not_called()
         restart.assert_not_called()
 
