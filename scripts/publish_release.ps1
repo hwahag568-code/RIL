@@ -404,13 +404,13 @@ function Compare-RilVersion {
         [int64]$leftMatch.Groups[2].Value
     }
     else {
-        0
+        [int64]0
     }
     $rightHotfix = if ($rightMatch.Groups[2].Success) {
         [int64]$rightMatch.Groups[2].Value
     }
     else {
-        0
+        [int64]0
     }
     return $leftHotfix.CompareTo($rightHotfix)
 }

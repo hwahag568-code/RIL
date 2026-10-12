@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import unittest
 
 
@@ -160,6 +162,37 @@ class PublishReleaseAtomicityTests(unittest.TestCase):
             "Could not read repository file",
             self.script,
         )
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell 7이 필요합니다.")
+    def test_version_comparison_accepts_base_and_hotfix_versions(self):
+        function_start = self.script.index("function Compare-RilVersion")
+        function_end = self.script.index(
+            "function Assert-RemoteMarkersDoNotBlockRelease",
+            function_start,
+        )
+        function_text = self.script[function_start:function_end]
+        probe = function_text + "\n" + "\n".join(
+            (
+                "Compare-RilVersion -Left '260730' -Right '260730.2'",
+                "Compare-RilVersion -Left '260730.2' -Right '260730'",
+                "Compare-RilVersion -Left '260730' -Right '260730'",
+                "Compare-RilVersion -Left '260730.1' -Right '260730.2'",
+            )
+        )
+        result = subprocess.run(
+            [
+                shutil.which("pwsh"),
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                probe,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["-1", "1", "0", "-1"])
 
     def test_stage_and_activate_have_configured_retries(self):
         self.assertIn("$releaseConfig.stage_attempts", self.orchestrator)
