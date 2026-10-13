@@ -11,6 +11,7 @@ import sys
 
 BUILD_INPUTS = (
     "RIL_client.py",
+    "ril_client_update_guard.py",
     "RIL_server.py",
     "IAL.py",
     "client.py",
