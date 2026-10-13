@@ -86,8 +86,6 @@ RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 
 !define MUI_ICON "${ICON_FILE}"
-!define MUI_INSTFILESPAGE_HEADER_TEXT "RIL 클라이언트 업데이트 설치 중"
-!define MUI_INSTFILESPAGE_HEADER_SUBTEXT "완료 후 자동 실행됩니다. 설치 중에는 RIL을 다시 실행하지 마세요."
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "Korean"
 
@@ -125,9 +123,6 @@ Function .onInit
     StrCpy $RecoveryMode "1"
 
 recovery_mode_done:
-    ; Even older clients pass /S: show progress for normal updates regardless.
-    StrCmp $RecoveryMode "1" +2
-    SetSilent normal
     System::Call 'kernel32::SetLastError(i 0)'
     ; 서버 installer/helper와 같은 배포 mutex를 실제 소유해
     ; 공용 설치 폴더의 payload 거래를 직렬화한다.

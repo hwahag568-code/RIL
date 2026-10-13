@@ -1,4 +1,5 @@
 import ctypes
+import json
 from pathlib import Path
 import unittest
 import subprocess
@@ -86,9 +87,17 @@ class ClientUpdateGuardTests(unittest.TestCase):
         self.assertLess(source.index("busy = update_in_progress"), source.index("from PyQt5"))
         self.assertIn('if "--ril-startup-ready-file" not in sys.argv:', source)
         installer = (root / "RIL_Client_Update.nsi").read_text(encoding="utf-8")
-        self.assertIn('StrCmp $RecoveryMode "1" +2\n    SetSilent normal', installer)
         self.assertIn('ril-client-update.log', installer)
         self.assertIn('StrCpy $UpdatePhase "rolled_back"', installer)
+
+    def test_automatic_install_remains_silent_without_progress_override(self):
+        root = Path(__file__).resolve().parents[1]
+        config = json.loads((root / "ril_config.json").read_text(encoding="utf-8"))
+        self.assertIn("/S", config["update"]["client"]["installer_arguments"])
+        installer = (root / "RIL_Client_Update.nsi").read_text(encoding="utf-8")
+        self.assertNotIn("SetSilent normal", installer)
+        self.assertNotIn("MUI_INSTFILESPAGE_HEADER_TEXT", installer)
+        self.assertNotIn("MUI_INSTFILESPAGE_HEADER_SUBTEXT", installer)
 
 
 if __name__ == "__main__":
