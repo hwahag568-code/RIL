@@ -7,7 +7,7 @@
     "architecture_bits": 64
   },
   "release": {
-    "version": "260730.4",
+    "version": "260730.5",
     "protocol_version": 2,
     "repository": "hwahag568-code/RIL",
     "tag_prefix": "v",

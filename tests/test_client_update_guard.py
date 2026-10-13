@@ -7,10 +7,97 @@ import sys
 import uuid
 from unittest import mock
 
-from ril_client_update_guard import show_update_notice, update_in_progress
+from ril_client_update_guard import PendingUpdate, pending_update, show_update_notice, update_in_progress
 
 
 class ClientUpdateGuardTests(unittest.TestCase):
+    def test_pending_gate_blocks_duplicate_before_installer_starts(self):
+        name = "Local\\RIL_pending_test_" + uuid.uuid4().hex
+        self.assertFalse(pending_update(name))
+        gate = PendingUpdate(name)
+        try:
+            self.assertTrue(pending_update(name))
+            with self.assertRaisesRegex(RuntimeError, "이미 업데이트"):
+                PendingUpdate(name)
+            self.assertTrue(pending_update(name))
+        finally:
+            gate.close()
+        self.assertFalse(pending_update(name))
+
+    def test_handoff_keeps_gate_alive_until_helper_exit(self):
+        name = "Local\\RIL_pending_test_" + uuid.uuid4().hex
+        gate = PendingUpdate(name)
+        child = gate.handoff(
+            [sys.executable, "-c", "import sys; sys.stdin.read()"],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            self.assertIsNone(gate.handle)
+            self.assertTrue(pending_update(name))
+            with self.assertRaises(RuntimeError):
+                PendingUpdate(name)
+        finally:
+            child.communicate(timeout=10)
+        self.assertFalse(pending_update(name))
+
+    def test_failed_handoff_keeps_gate_until_caller_cleans_up(self):
+        name = "Local\\RIL_pending_test_" + uuid.uuid4().hex
+        gate = PendingUpdate(name)
+        try:
+            with mock.patch("ril_client_update_guard.subprocess.Popen", side_effect=OSError("failed")):
+                with self.assertRaises(OSError):
+                    gate.handoff(["unused"])
+            self.assertTrue(pending_update(name))
+        finally:
+            gate.close()
+        self.assertFalse(pending_update(name))
+
+    def test_helper_crash_releases_pending_gate(self):
+        name = "Local\\RIL_pending_test_" + uuid.uuid4().hex
+        gate = PendingUpdate(name)
+        child = gate.handoff(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            self.assertTrue(pending_update(name))
+        finally:
+            child.terminate()
+            child.wait(timeout=10)
+        self.assertFalse(pending_update(name))
+
+    def test_real_powershell_handoff_waits_for_installer_exit(self):
+        import os
+        name = "Local\\RIL_pending_test_" + uuid.uuid4().hex
+        gate = PendingUpdate(name)
+        child = gate.launch_installer(
+            sys.executable, ["-c", "import time; time.sleep(1)"], sys.executable, os.environ.copy(),
+        )
+        try:
+            self.assertTrue(pending_update(name))
+            self.assertEqual(child.wait(timeout=20), 0)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=10)
+            gate.close()
+        self.assertFalse(pending_update(name))
+
+    def test_finished_download_releases_gate_only_without_installer_handoff(self):
+        import RIL_client
+        from types import SimpleNamespace
+        for pending in (None, "installer.exe"):
+            with self.subTest(pending=pending):
+                gate = mock.Mock()
+                worker = mock.Mock()
+                window = SimpleNamespace(download_worker=worker, _update_gate=gate, _pending_installer_path=pending)
+                with mock.patch.object(RIL_client.WindowClass, "_maybe_quit_after_close"):
+                    RIL_client.WindowClass._background_worker_finished(window, "download_worker", worker)
+                if pending:
+                    gate.close.assert_not_called()
+                else:
+                    gate.close.assert_called_once_with()
+
     def test_notice_is_detached_from_client_and_install_directory(self):
         with mock.patch("ril_client_update_guard.subprocess.Popen") as launch:
             show_update_notice("설치 중 '대기'")
@@ -98,6 +185,20 @@ class ClientUpdateGuardTests(unittest.TestCase):
         self.assertNotIn("SetSilent normal", installer)
         self.assertNotIn("MUI_INSTFILESPAGE_HEADER_TEXT", installer)
         self.assertNotIn("MUI_INSTFILESPAGE_HEADER_SUBTEXT", installer)
+
+    def test_gate_precedes_download_and_managed_rollback_defers_restart(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "RIL_client.py").read_text(encoding="utf-8")
+        start = source.index("def download_and_install(")
+        self.assertLess(source.index("self._update_gate = PendingUpdate", start), source.index("self.download_worker = DownloadWorker", start))
+        installer = (root / "RIL_Client_Update.nsi").read_text(encoding="utf-8")
+        for label, destination in (
+            ("client_stage_launch_old", "client_stage_failed_message"),
+            ("client_stage_launch_current", "client_stage_failed_message"),
+            ("client_rollback_launch_old", "client_transaction_rolled_back_message"),
+            ("client_rollback_launch_current", "client_transaction_rolled_back_message"),
+        ):
+            self.assertIn(f'{label}:\n    StrCmp $ClientHandoff "1" {destination}', installer)
 
 
 if __name__ == "__main__":

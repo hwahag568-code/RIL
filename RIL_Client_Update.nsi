@@ -114,8 +114,16 @@ Var TargetClientInstallRegistryValue
 Var TargetLegacyInstallRegistryValue
 Var InstalledClientConfigPath
 Var UpdatePhase
+Var ClientHandoff
 
 Function .onInit
+    StrCpy $ClientHandoff "0"
+    ${GetParameters} $5
+    ${GetOptions} $5 "/CLIENT_HANDOFF" $6
+    IfErrors client_handoff_parsed
+    StrCpy $ClientHandoff "1"
+client_handoff_parsed:
+    ClearErrors
     StrCpy $RecoveryMode "0"
     ${GetParameters} $5
     ${GetOptions} $5 "/RECOVERY" $6
@@ -519,12 +527,14 @@ client_stage_failed:
     StrCmp "$OldClientExecutable" "${CLIENT_EXECUTABLE}" client_stage_launch_current client_stage_launch_old
 
 client_stage_launch_old:
+    StrCmp $ClientHandoff "1" client_stage_failed_message
     IfFileExists "$0\$OldClientExecutable" 0 client_stage_failed_message
     ClearErrors
     ExecShell "open" "$0\$OldClientExecutable"
     Goto client_stage_failed_message
 
 client_stage_launch_current:
+    StrCmp $ClientHandoff "1" client_stage_failed_message
     IfFileExists "$0\${CLIENT_EXECUTABLE}" 0 client_stage_failed_message
     ClearErrors
     ExecShell "open" "$0\${CLIENT_EXECUTABLE}"
@@ -550,12 +560,14 @@ client_transaction_rolled_back:
     StrCmp "$OldClientExecutable" "${CLIENT_EXECUTABLE}" client_rollback_launch_current client_rollback_launch_old
 
 client_rollback_launch_old:
+    StrCmp $ClientHandoff "1" client_transaction_rolled_back_message
     IfFileExists "$0\$OldClientExecutable" 0 client_transaction_rolled_back_message
     ClearErrors
     ExecShell "open" "$0\$OldClientExecutable"
     Goto client_transaction_rolled_back_message
 
 client_rollback_launch_current:
+    StrCmp $ClientHandoff "1" client_transaction_rolled_back_message
     IfFileExists "$0\${CLIENT_EXECUTABLE}" 0 client_transaction_rolled_back_message
     ClearErrors
     ExecShell "open" "$0\${CLIENT_EXECUTABLE}"

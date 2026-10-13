@@ -11,10 +11,11 @@ select_component_config("client")
 if __name__ == "__main__" and getattr(sys, "frozen", False):
     # The installer alone launches the startup-health probe while holding its lock.
     if "--ril-startup-ready-file" not in sys.argv:
-        from ril_client_update_guard import show_update_notice, update_in_progress
+        from ril_client_update_guard import pending_update, show_update_notice, update_in_progress
 
         try:
-            busy = update_in_progress(load_config()["installation"]["update_mutex_name"])
+            mutex_name = load_config()["installation"]["update_mutex_name"]
+            busy = update_in_progress(mutex_name) or pending_update(mutex_name)
             message = "RIL 업데이트 설치 중입니다. 완료 후 자동으로 실행됩니다. 잠시 기다려 주세요."
         except OSError:
             busy = True
@@ -34,7 +35,6 @@ import client
 import traceback
 import requests
 import psutil
-import subprocess
 import tempfile
 from ril_config import expand_path, load_config, resource_path
 from ril_devices import (
@@ -510,6 +510,13 @@ class WindowClass(QMainWindow, form_class):
         expected_sha256=None,
     ):
         try:
+            from ril_client_update_guard import PendingUpdate, update_in_progress
+
+            if getattr(self, "_update_gate", None) is not None:
+                return
+            if update_in_progress(_INSTALLATION["update_mutex_name"]):
+                raise RuntimeError("다른 RIL 설치 또는 업데이트가 진행 중입니다.")
+            self._update_gate = PendingUpdate(_INSTALLATION["update_mutex_name"])
             # 1. [Cache Busting] URL 뒤에 시간 붙이기
             import time
             bust_url = f"{installer_url}?t={int(time.time())}"
@@ -558,7 +565,14 @@ class WindowClass(QMainWindow, form_class):
             self.download_worker.start()
 
         except Exception as e:
+            WindowClass._release_update_gate(self)
             QMessageBox.critical(self, "오류", f"업데이트 준비 중 오류: {e}")
+
+    def _release_update_gate(self):
+        gate = getattr(self, "_update_gate", None)
+        if gate is not None:
+            gate.close()
+            self._update_gate = None
 
     # 진행률 업데이트 슬롯
     def update_progress(self, percent):
@@ -858,6 +872,8 @@ class WindowClass(QMainWindow, form_class):
         if getattr(self, attribute_name, None) is worker:
             setattr(self, attribute_name, None)
         worker.deleteLater()
+        if attribute_name == "download_worker" and not getattr(self, "_pending_installer_path", None):
+            WindowClass._release_update_gate(self)
         WindowClass._maybe_quit_after_close(self)
 
     def _running_background_workers(self):
@@ -886,20 +902,16 @@ class WindowClass(QMainWindow, form_class):
                 try:
                     env = os.environ.copy()
                     env.pop("_MEIPASS", None)
-                    subprocess.Popen(
-                        [
-                            installer_path,
-                            *[
-                                str(argument)
-                                for argument in _CLIENT_UPDATE[
-                                    "installer_arguments"
-                                ]
-                            ],
-                        ],
-                        shell=False,
-                        env=env,
+                    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+                    self._update_gate.launch_installer(
+                        installer_path,
+                        [str(argument) for argument in _CLIENT_UPDATE["installer_arguments"]],
+                        os.path.join(APP_DIR, _INSTALLATION["client_executable"]),
+                        env,
                     )
+                    self._update_gate = None
                 except Exception as e:
+                    WindowClass._release_update_gate(self)
                     self._closing = False
                     if app is not None:
                         app.setQuitOnLastWindowClosed(True)
@@ -910,6 +922,7 @@ class WindowClass(QMainWindow, form_class):
                         f"설치 파일 실행 실패:\n{e}",
                     )
                     return
+            WindowClass._release_update_gate(self)
             if app is not None:
                 app.quit()
 

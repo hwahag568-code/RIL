@@ -311,6 +311,8 @@ class GuiWorkerLifecycleTests(unittest.TestCase):
         window = make_window(selected=())
         window._closing = True
         window._pending_installer_path = r"C:\Temp\RIL_Update.exe"
+        gate = mock.Mock()
+        window._update_gate = gate
         app = mock.Mock()
 
         with (
@@ -319,17 +321,16 @@ class GuiWorkerLifecycleTests(unittest.TestCase):
                 "instance",
                 return_value=app,
             ),
-            mock.patch.object(RIL_client.subprocess, "Popen") as popen,
         ):
             RIL_client.WindowClass._maybe_quit_after_close(window)
 
-        popen.assert_called_once()
-        args, kwargs = popen.call_args
-        self.assertEqual(
-            args[0],
-            [r"C:\Temp\RIL_Update.exe", "/S"],
-        )
-        self.assertFalse(kwargs["shell"])
+        gate.launch_installer.assert_called_once()
+        args, kwargs = gate.launch_installer.call_args
+        self.assertEqual(args[0], r"C:\Temp\RIL_Update.exe")
+        self.assertEqual(args[1], ["/S"])
+        self.assertEqual(args[3]["PYINSTALLER_RESET_ENVIRONMENT"], "1")
+        gate.close.assert_not_called()
+        self.assertIsNone(window._update_gate)
         self.assertIsNone(window._pending_installer_path)
         app.quit.assert_called_once()
 
