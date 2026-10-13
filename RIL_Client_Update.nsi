@@ -86,6 +86,8 @@ RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 
 !define MUI_ICON "${ICON_FILE}"
+!define MUI_INSTFILESPAGE_HEADER_TEXT "RIL 클라이언트 업데이트 설치 중"
+!define MUI_INSTFILESPAGE_HEADER_SUBTEXT "완료 후 자동 실행됩니다. 설치 중에는 RIL을 다시 실행하지 마세요."
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "Korean"
 
@@ -113,6 +115,7 @@ Var TargetRegistryKey
 Var TargetClientInstallRegistryValue
 Var TargetLegacyInstallRegistryValue
 Var InstalledClientConfigPath
+Var UpdatePhase
 
 Function .onInit
     StrCpy $RecoveryMode "0"
@@ -122,6 +125,9 @@ Function .onInit
     StrCpy $RecoveryMode "1"
 
 recovery_mode_done:
+    ; Even older clients pass /S: show progress for normal updates regardless.
+    StrCmp $RecoveryMode "1" +2
+    SetSilent normal
     System::Call 'kernel32::SetLastError(i 0)'
     ; 서버 installer/helper와 같은 배포 mutex를 실제 소유해
     ; 공용 설치 폴더의 payload 거래를 직렬화한다.
@@ -186,6 +192,8 @@ client_resolve_recovery_install_dir:
     ${GetParent} "$EXEDIR" $0
 
 client_install_dir_resolved:
+    StrCpy $UpdatePhase "prepare"
+    Call LogClientUpdatePhase
 
     InitPluginsDir
     SetOutPath "$PLUGINSDIR"
@@ -208,6 +216,8 @@ client_load_migration_descriptor:
     StrCmp $DescriptorLoadStatus "0" client_prepare_done client_prepare_failed
 
 client_prepare_failed:
+    StrCpy $UpdatePhase "prepare_failed"
+    Call LogClientUpdatePhase
     IfSilent client_prepare_failed_silent
     MessageBox MB_OK|MB_ICONSTOP "기존 클라이언트를 종료하지 못했습니다. 실행 중인 RIL_client를 종료한 뒤 다시 시도하세요. (종료 코드: $1)"
 client_prepare_failed_silent:
@@ -236,6 +246,7 @@ client_reload_migration_descriptor:
     StrCmp $DescriptorLoadStatus "0" client_recovery_done client_prepare_failed
 
 client_recovery_only:
+    System::Call 'kernel32::ReleaseMutex(p r7)'
     StrCmp $RecoveredOldClient "1" client_recovery_launch_old
     StrCmp "$TargetClientExecutable" "${CLIENT_EXECUTABLE}" client_recovery_launch_current client_recovery_launch_target
 
@@ -262,6 +273,8 @@ client_recovery_launch_old:
 client_recovery_launch_succeeded:
     Call CleanupClientRecovery
 
+    StrCpy $UpdatePhase "complete"
+    Call LogClientUpdatePhase
     SetErrorLevel 0
     SetAutoClose true
     Goto client_done
@@ -274,6 +287,8 @@ client_recovery_launch_failed_silent:
     Abort
 
 client_recovery_failed:
+    StrCpy $UpdatePhase "recovery_failed"
+    Call LogClientUpdatePhase
     IfSilent client_recovery_failed_silent
     MessageBox MB_OK|MB_ICONSTOP "중단된 이전 클라이언트 업데이트를 복구하지 못했습니다. $0\${CLIENT_UPDATE_BACKUP_DIRECTORY} 폴더를 보존하고 관리자에게 문의하세요."
 client_recovery_failed_silent:
@@ -281,6 +296,8 @@ client_recovery_failed_silent:
     Abort
 
 client_recovery_done:
+    StrCpy $UpdatePhase "stage"
+    Call LogClientUpdatePhase
     SetOutPath "$0\${CLIENT_UPDATE_STAGE_DIRECTORY}"
     SetOverwrite on
     ClearErrors
@@ -419,6 +436,8 @@ client_backup_complete_marker_write_failed:
     Goto client_transaction_failed
 
 client_install_staged_runtime:
+    StrCpy $UpdatePhase "install_runtime"
+    Call LogClientUpdatePhase
     ClearErrors
     Rename "$0\${CLIENT_UPDATE_STAGE_DIRECTORY}\${CLIENT_EXECUTABLE}" "$0\${CLIENT_EXECUTABLE}"
     IfErrors client_transaction_failed
@@ -449,6 +468,8 @@ client_validate_startup_ready:
     StrCmp $4 "0" client_startup_ready client_startup_failed
 
 client_startup_ready:
+    StrCpy $UpdatePhase "startup_verified"
+    Call LogClientUpdatePhase
     ClearErrors
     Delete "$0\${CLIENT_STARTUP_READY_FILENAME}"
     IfErrors client_startup_failed
@@ -473,6 +494,8 @@ client_registry_committed:
     RMDir /r "$0\${CLIENT_UPDATE_STAGE_DIRECTORY}"
     Call CleanupClientRecovery
 
+    StrCpy $UpdatePhase "complete"
+    Call LogClientUpdatePhase
     SetErrorLevel 0
     SetAutoClose true
     Goto client_done
@@ -482,6 +505,8 @@ client_commit_marker_write_failed:
     Goto client_startup_failed
 
 client_startup_failed:
+    StrCpy $UpdatePhase "startup_failed"
+    Call LogClientUpdatePhase
     nsExec::ExecToLog '"${POWER_SHELL_EXECUTABLE}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\RIL_install_prepare.ps1" -Component client -InstallDir "$0" -ConfigPath "$PLUGINSDIR\ril_config.json" -InstalledConfigPath "$InstalledClientConfigPath" -DescriptorPath "$ClientMigrationDescriptor"'
     Pop $4
     Sleep 500
@@ -489,10 +514,13 @@ client_startup_failed:
     Goto client_transaction_failed
 
 client_stage_failed:
+    StrCpy $UpdatePhase "stage_failed"
+    Call LogClientUpdatePhase
     SetOutPath "$PLUGINSDIR"
     RMDir /r "$0\${CLIENT_UPDATE_STAGE_DIRECTORY}"
     RMDir /r "$0\${CLIENT_UPDATE_BACKUP_DIRECTORY}"
     Call CleanupClientRecovery
+    System::Call 'kernel32::ReleaseMutex(p r7)'
     StrCmp "$OldClientExecutable" "${CLIENT_EXECUTABLE}" client_stage_launch_current client_stage_launch_old
 
 client_stage_launch_old:
@@ -514,11 +542,16 @@ client_stage_failed_silent:
     Abort
 
 client_transaction_failed:
+    StrCpy $UpdatePhase "transaction_failed"
+    Call LogClientUpdatePhase
     Call RecoverInterruptedClientUpdate
     StrCmp $2 "0" client_transaction_rolled_back client_recovery_failed
 
 client_transaction_rolled_back:
     Call CleanupClientRecovery
+    StrCpy $UpdatePhase "rolled_back"
+    Call LogClientUpdatePhase
+    System::Call 'kernel32::ReleaseMutex(p r7)'
     StrCmp "$OldClientExecutable" "${CLIENT_EXECUTABLE}" client_rollback_launch_current client_rollback_launch_old
 
 client_rollback_launch_old:
@@ -541,6 +574,19 @@ client_transaction_rolled_back_silent:
 
 client_done:
 SectionEnd
+
+Function LogClientUpdatePhase
+    ; Keep diagnostics outside the transaction directories, including after rollback.
+    Push $9
+    ClearErrors
+    FileOpen $9 "$0\ril-client-update.log" a
+    IfErrors log_client_update_done
+    FileWrite $9 "version=${APP_VERSION} phase=$UpdatePhase prepare_code=$1 check_code=$4$\r$\n"
+    FileClose $9
+log_client_update_done:
+    ClearErrors
+    Pop $9
+FunctionEnd
 
 Function SelectInstalledClientConfigPath
     StrCpy $InstalledClientConfigPath "$0\${CLIENT_INSTALLED_CONFIG_FILENAME}"

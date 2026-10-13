@@ -4,12 +4,31 @@ import os
 import sys, socket, time
 import json
 from pathlib import Path
+from ril_config import select_component_config, load_config
+
+select_component_config("client")
+
+if __name__ == "__main__" and getattr(sys, "frozen", False):
+    # The installer alone launches the startup-health probe while holding its lock.
+    if "--ril-startup-ready-file" not in sys.argv:
+        from ril_client_update_guard import show_update_notice, update_in_progress
+
+        try:
+            busy = update_in_progress(load_config()["installation"]["update_mutex_name"])
+            message = "RIL 업데이트 설치 중입니다. 완료 후 자동으로 실행됩니다. 잠시 기다려 주세요."
+        except OSError:
+            busy = True
+            message = "RIL 업데이트 상태를 확인하지 못했습니다. 설치 완료 후 다시 실행해 주세요."
+        if busy:
+            try:
+                show_update_notice(message)
+            except OSError:
+                pass  # Still release this executable if the notice cannot launch.
+            sys.exit(0)
+
 from PyQt5.QtWidgets import *
 from PyQt5 import uic
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
-from ril_config import select_component_config
-
-select_component_config("client")
 
 import client
 import traceback
